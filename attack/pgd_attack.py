@@ -33,7 +33,7 @@ class PGDAttack():
                 delta[:, i, :, :].uniform_(-e, e)
 
             x = x + delta
-            
+
             for _ in range(self.iter):
                 x.requires_grad_()
                 with torch.enable_grad():
@@ -52,6 +52,6 @@ class PGDAttack():
                 max_loss = torch.max(max_loss, all_loss)
 
         # standarization advx
-        max_x = (max_x - self.mean)/self.std
+        # max_x = (max_x - self.mean)/self.std
 
         return max_x

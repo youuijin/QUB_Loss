@@ -44,7 +44,7 @@ best_acc, best_adv_acc = 0, 0  # best test accuracy
 set_seed()
 method = 'FGSM_RS'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{method}(eps{args.eps}_{args.a1}_{args.a2})_epoch{args.epoch}_{args.normalize}_{cur}'
+log_name = f'{method}(eps{args.eps}_{args.a1}_{args.a2})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
