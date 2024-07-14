@@ -22,9 +22,6 @@ class PGDAttack():
         max_loss = torch.zeros(y.shape[0]).to(self.device)
         max_x = torch.zeros_like(x_natural).to(self.device)
         
-        # standarization input
-        x_natural = x_natural * self.std + self.mean
-
         for _ in range(self.restart):
             x = x_natural.detach()
             # x = x + torch.zeros_like(x).uniform_(-self.eps, self.eps)
@@ -51,7 +48,5 @@ class PGDAttack():
                 max_x[all_loss >= max_loss] = torch.clone(x.detach()[all_loss >= max_loss])
                 max_loss = torch.max(max_loss, all_loss)
 
-        # standarization advx
-        # max_x = (max_x - self.mean)/self.std
 
         return max_x

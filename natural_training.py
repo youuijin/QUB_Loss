@@ -88,6 +88,8 @@ def train(epoch):
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
+
+        print(loss.item())
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))

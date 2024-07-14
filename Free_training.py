@@ -65,7 +65,7 @@ model = model.to(device)
 
 # Optimizer
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
+scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(int(args.epoch/args.m)*0.5), int(int(args.epoch/args.m)*0.8)], gamma=0.1)
 
 # Train Attack & Test Attack
 test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)

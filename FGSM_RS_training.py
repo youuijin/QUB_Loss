@@ -119,7 +119,7 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
-        # print(loss.item())
+        # print(scheduler.get_last_lr(), loss.item())
 
         scheduler.step()
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
