@@ -1,0 +1,15 @@
+log_name,model,method,best_acc,best_adv_acc,train_time,tot_time
+resnet18_no_AT_epoch200_07-11_22-27,resnet18,no_AT,95.21,0.01,,
+resnet18_no_AT_epoch150_07-12_00-23,resnet18,no_AT,94.98,0.0,,
+resnet18_PGD_AT(eps8.0_iter10)_epoch200_07-11_22-27,resnet18,PGD_AT,82.4,50.43,4:41:04,5:14:04
+resnet34_no_AT_epoch200_07-12_01-51,resnet34,no_AT,95.31,0.03,,
+resnet18_PGD_AT(eps8.0_iter10)_epoch150_07-12_03-13,resnet18,PGD_AT,82.89,50.04,3:30:49,4:25:32
+resnet34_no_AT_epoch150_07-12_04-44,resnet34,no_AT,95.23,0.05,,
+resnet34_PGD_AT(eps8.0_iter10)_epoch200_07-12_06-48,resnet34,PGD_AT,84.63,53.1,7:39:36,8:12:16
+wrn_34_10_no_AT_epoch200_07-12_06-54,wrn_34_10,no_AT,96.01,0.01,,
+resnet18_TRADES(eps8.0_iter10)_beta5.0_epoch100_07-12_23-30,resnet18,TRADES,79.42,47.65,4:17:37,4:20:44
+resnet18_TRADES(eps8.0_iter10)_beta5.0_epoch100_07-13_03-50,resnet18,TRADES,82.25,51.56,4:17:39,4:20:51
+resnet18_TRADES(eps8.0_iter10)_beta5.0_epoch200_07-13_08-11,resnet18,TRADES,79.79,48.95,8:35:47,8:42:10
+resnet34_PGD_AT(eps8.0_iter7)_epoch150_07-13_13-54,resnet34,PGD_AT,85.2,51.34,4:25:39,4:31:46
+resnet34_PGD_AT(eps8.0_iter7)_epoch200_07-13_18-26,resnet34,PGD_AT,84.4,52.3,5:55:01,6:03:10
+resnet18_TRADES(eps8.0_iter10)_beta5.0_epoch200_07-13_16-54,resnet18,TRADES,82.17,52.34,8:36:33,8:42:53

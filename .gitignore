@@ -1,0 +1,6 @@
+*.pyc
+__pycache__/
+TODO/
+logs/
+data/
+saved_models/
