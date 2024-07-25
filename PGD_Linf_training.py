@@ -7,8 +7,6 @@ import csv
 
 import argparse
 from datetime import datetime, timedelta
-import time
-
 from utils.train_utils import *
 from attack.pgd_attack import PGDAttack
 
@@ -33,6 +31,8 @@ parser.add_argument('--device', type=int, default=0)
 parser.add_argument('--num_step', type=int, default=10)
 parser.add_argument('--eps', type=float, default=8.)
 parser.add_argument('--alpha', type=float, default=2.)
+
+parser.add_argument('--config', type=str, default='none')
 
 args = parser.parse_args()
 

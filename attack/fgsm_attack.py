@@ -2,19 +2,73 @@ import torch
 import torch.nn.functional as F
 # from attack.AttackBase import Attack
 
-class FGSM_RS_Attack():
-    def __init__(self, model, eps=8.0, a1=8.0, a2=10.0, mean=(0, 0, 0), std=(1, 1, 1), device=None):
+class FGSM_Attack():
+    def __init__(self, model, eps=8.0, mean=(0, 0, 0), std=(1, 1, 1), device=None):
         self.model = model  
         self.device = device
         self.mean = torch.tensor(mean).to(device).view(1, 3, 1, 1)
         self.std = torch.tensor(std).to(device).view(1, 3, 1, 1)
 
         self.eps = eps/255./self.std
-        self.a1 = a1/255./self.std
-        self.a2 = a2/255./self.std
         self.upper_limit = ((1 - self.mean) / self.std)
         self.lower_limit = ((0 - self.mean) / self.std)
 
+
+    def perturb(self, x_natural, y):
+        self.model.eval()
+
+        delta = torch.zeros_like(x_natural).to(self.device)
+
+        delta.requires_grad_()
+
+        output = self.model(x_natural + delta)
+        loss = F.cross_entropy(output, y)
+        loss.backward()
+
+        grad = delta.grad.detach()
+        delta.data = torch.clamp(delta + self.eps*torch.sign(grad), -self.eps, self.eps)
+
+        delta = torch.clamp(delta, self.lower_limit - x_natural, self.upper_limit - x_natural)
+        delta = delta.detach()
+
+        adv_x = x_natural + delta
+
+        self.model.train()
+
+        return adv_x
+    
+    def get_grad(self, x_natural, y, uniform=False):
+        x = x_natural.detach()
+
+        if uniform:
+            delta = torch.zeros_like(x_natural).to(self.device)
+            for i, e in enumerate(self.eps.squeeze()):
+                delta[:, i, :, :].uniform_(-e, e)
+            x = x + delta
+            torch.clamp(x, self.lower_limit, self.upper_limit)
+            
+        x.requires_grad_()
+
+        output = self.model(x)
+        
+        loss = F.cross_entropy(output, y)
+        loss.backward()
+
+        grad = x.grad.detach()
+        
+        return grad
+
+class FGSM_RS_Attack():
+    def __init__(self, model, eps=8.0, alpha=10.0, mean=(0, 0, 0), std=(1, 1, 1), device=None):
+        self.model = model  
+        self.device = device
+        self.mean = torch.tensor(mean).to(device).view(1, 3, 1, 1)
+        self.std = torch.tensor(std).to(device).view(1, 3, 1, 1)
+
+        self.eps = eps/255./self.std
+        self.alpha = alpha/255./self.std
+        self.upper_limit = ((1 - self.mean) / self.std)
+        self.lower_limit = ((0 - self.mean) / self.std)
 
     def perturb(self, x_natural, y):
         self.model.eval()
@@ -22,8 +76,8 @@ class FGSM_RS_Attack():
 
         delta = torch.zeros_like(x_natural).to(self.device)
         # delta = delta.uniform_(-self.a1, self.a1)
-        for i, alpha in enumerate(self.a1.squeeze()):
-            delta[:, i, :, :].uniform_(-alpha, alpha)
+        for i, e in enumerate(self.eps.squeeze()):
+            delta[:, i, :, :].uniform_(-e, e)
 
         delta.data = torch.clamp(delta, self.lower_limit - x_natural, self.upper_limit - x_natural)
 
@@ -34,7 +88,7 @@ class FGSM_RS_Attack():
         loss.backward()
 
         grad = delta.grad.detach()
-        delta.data = torch.clamp(delta + self.a2*torch.sign(grad), -self.eps, self.eps)
+        delta.data = torch.clamp(delta + self.alpha*torch.sign(grad), -self.eps, self.eps)
 
         delta = torch.clamp(delta, self.lower_limit - x_natural, self.upper_limit - x_natural)
         delta = delta.detach()

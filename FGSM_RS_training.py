@@ -33,8 +33,7 @@ parser.add_argument('--device', type=int, default=0)
 
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
-parser.add_argument('--a1', type=float, default=8.)
-parser.add_argument('--a2', type=float, default=10.)
+parser.add_argument('--alpha', type=float, default=10.)
 
 args = parser.parse_args()
 
@@ -44,7 +43,7 @@ best_acc, best_adv_acc = 0, 0  # best test accuracy
 set_seed()
 method = 'FGSM_RS'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{method}(eps{args.eps}_{args.a1}_{args.a2})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps}_{args.alpha})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
@@ -79,7 +78,7 @@ elif args.sche == 'multistep':
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 
 # Train Attack & Test Attack
-attack = FGSM_RS_Attack(model, eps=args.eps, a1=args.a1, a2=args.a2, mean=norm_mean, std=norm_std, device=device)
+attack = FGSM_RS_Attack(model, eps=args.eps, alpha=args.alpha, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
@@ -166,8 +165,8 @@ for epoch in range(args.epoch):
     start = datetime.now()
     train(epoch)
     train_time += datetime.now() - start
-    if epoch%10 == 0:
-        test(epoch)
+    # if epoch%10 == 0:
+    test(epoch)
     # scheduler.step()
 tot_time = datetime.now() - train_start
 

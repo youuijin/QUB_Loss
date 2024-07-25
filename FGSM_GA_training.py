@@ -7,32 +7,35 @@ import csv
 
 import argparse
 from datetime import datetime, timedelta
-from torch.autograd import Variable
+import time
 
 from utils.train_utils import *
 from attack.pgd_attack import PGDAttack
+from attack.fgsm_attack import FGSM_Attack
 
 from torch.utils.tensorboard import SummaryWriter
 
-parser = argparse.ArgumentParser(description='PyTorch CIFAR10 PGD_Linf Training')
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 FGSM-GA Training')
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
 # dataset options
 parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar10')
-parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet'], default='none')
-parser.add_argument('--sche', choices=['multistep', 'cyclic'], default='cyclic')
+parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'], default='none')
 
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
+parser.add_argument('--sche', default='cyclic', choices=['multistep', 'cyclic', 'none'], help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--device', type=int, default=0)
 
 # attack options
-parser.add_argument('--m', type=int, default=8)
 parser.add_argument('--eps', type=float, default=8.)
+parser.add_argument('--lamb', type=float, default=0.2)
+
+parser.add_argument('--final', action='store_true', default=False)
 
 args = parser.parse_args()
 
@@ -40,9 +43,9 @@ device = f'cuda:{args.device}'
 best_acc, best_adv_acc = 0, 0  # best test accuracy
 
 set_seed()
-method = 'Free_AT'
+method = 'FGSM_GA'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{method}(eps{args.eps}_m{args.m})_epoch{args.epoch}_lr{args.lr}_{args.normalize}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_epoch{args.epoch}_{args.normalize}_{args.sche}_eight_0.001_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
@@ -52,6 +55,8 @@ print('==> Preparing data..')
 
 if args.normalize == "imagenet":
     norm_mean, norm_std = (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+elif args.normalize == "cifar":
+    norm_mean, norm_std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
 elif args.normalize == "twice":
     norm_mean, norm_std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
 else: 
@@ -65,26 +70,22 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Optimizer
-optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0002)
-lr_steps = args.epoch * len(train_loader)
-if args.sche == 'multistep':
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.75)], gamma=0.1)
-elif args.sche == 'cyclic':
-    lr_min = 0.0
+optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+lr_steps = len(train_loader) * args.epoch
+if args.sche == 'cyclic':
+    lr_min = 0.001
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
-        step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
+        step_size_up=lr_steps / 16, step_size_down=lr_steps / 16)
+elif args.sche == 'multistep':
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 
 # Train Attack & Test Attack
+attack = FGSM_Attack(model, eps=args.eps, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
-norm_mean = torch.tensor(norm_mean).to(device).view(1, 3, 1, 1)
-norm_std = torch.tensor(norm_std).to(device).view(1, 3, 1, 1)
-upper_limit = ((1 - norm_mean) / norm_std)
-lower_limit = ((0 - norm_mean) / norm_std)
-eps = args.eps/255./norm_std
-
-global_noise = torch.zeros(args.batch_size, 3, 32, 32)
-global_noise = global_noise.to(device)
+def l2_norm_batch(v):
+    norms = (v ** 2).sum([1, 2, 3]) ** 0.5
+    return norms
 
 # Train 1 epoch
 def train(epoch):
@@ -93,47 +94,45 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    global delta
     for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
-        for _ in range(args.m):
-            optimizer.zero_grad()
+        optimizer.zero_grad()
+        if args.loss == 'CE':
+            inputs = attack.perturb(inputs, targets)
+            outputs = model(inputs)
+            loss = F.cross_entropy(outputs, targets)
+        elif args.loss == 'QUB':
+            outputs = model(inputs)
+            softmax = F.softmax(outputs, dim=1)
+            y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
 
-            delta = Variable(global_noise[0:inputs.size(0)], requires_grad=True).to(device)
-            advx = torch.clamp(inputs + delta, lower_limit, upper_limit)
+            adv_inputs = attack.perturb(inputs, targets)
+            adv_outputs = model(adv_inputs)
+            adv_norm = torch.norm(adv_outputs-outputs, dim=1)
 
-            if args.loss == 'CE':
-                outputs = model(advx)
-                loss = F.cross_entropy(outputs, targets)  
+            loss = F.cross_entropy(outputs, targets, reduction='none')
 
-            elif args.loss == 'QUB':
-                outputs = model(inputs)
-                softmax = F.softmax(outputs, dim=1)
-                y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
-                loss_natural = F.cross_entropy(outputs, targets, reduction='none')
-                
-                adv_outputs = model(advx)
-                adv_norm = torch.norm(adv_outputs-outputs, dim=1)
+            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
+            loss = upper_loss.mean()
 
-                upper_loss = loss_natural + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
-                loss = upper_loss.mean()
+        grad1 = attack.get_grad(inputs, targets, uniform=False)
+        grad2 = attack.get_grad(inputs, targets, uniform=True)
 
-            optimizer.zero_grad()
-            loss.backward()
+        grad1_norms, grad2_norms = l2_norm_batch(grad1), l2_norm_batch(grad2)
+        grad1_normalized = grad1 / grad1_norms[:, None, None, None]
+        grad2_normalized = grad2 / grad2_norms[:, None, None, None]
+        cos = torch.sum(grad1_normalized * grad2_normalized, (1, 2, 3))
+        loss += args.lamb * (1.0 - cos.mean())
 
-            grad = delta.grad
-            global_noise[0:inputs.size(0)] += (eps * torch.sign(grad)).data
-            global_noise.clamp_(-eps, eps)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-            optimizer.step()
-            scheduler.step() # if stepwise update
+        train_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total += targets.size(0)
+        correct += predicted.eq(targets).sum().item()
 
-            # print(scheduler.get_last_lr(), loss.item())
-
-            train_loss += loss.item()
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
@@ -174,13 +173,12 @@ print('start training..')
 
 train_time = timedelta()
 train_start = datetime.now()
-for epoch in range(int(args.epoch/args.m)):
+for epoch in range(args.epoch):
     start = datetime.now()
     train(epoch)
     train_time += datetime.now() - start
-    # if epoch%10 == 0:
     test(epoch)
-    # scheduler.step()
+    scheduler.step()
 tot_time = datetime.now() - train_start
 
 print('======================================')

@@ -50,7 +50,7 @@ def check_is_tested(model_path):
 if args.model_path != "":
     if check_is_tested(args.model_path+".pt"):
         raise ValueError("This model is already tested")
-    model_paths = [f'{args.saved_dir}/{args.model_path}.pt']
+    model_paths = [f'{args.model_path}.pt']
 else: 
     exist_model_paths = os.listdir(f'{args.saved_dir}/')
     model_paths = []
@@ -80,6 +80,7 @@ def accuracy(model, inputs, labels):
 print('==> Building model..')
 model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
+model.eval()
 
 # Test
 for model_path in model_paths:
@@ -107,6 +108,9 @@ for model_path in model_paths:
             robust_acc.append(rob_acc)
         attack_success[i][0] = 100. * sum(natural_acc)/len(test_loader.dataset)
         attack_success[i][1] = 100. * sum(robust_acc)/len(test_loader.dataset)
-        print(
-            f"natural accuracy: {attack_success[i][0]}, robust accuracy: {attack_success[i][1]}")
+        print(f"natural accuracy: {attack_success[i][0]}, robust accuracy: {attack_success[i][1]}")
     # print()
+
+with open(f'{args.csv_name}', 'a', encoding='utf-8', newline='') as f:
+    wr = csv.writer(f)
+    wr.writerow([f'{args.model_path}', attack_success[0][0]] + [attack_success[i][1] for i in range(4)])

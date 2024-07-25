@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 
 # from attack.AttackLoss import *
 
+
 def set_seed(seed=706):
     random.seed(seed)
     np.random.seed(seed)

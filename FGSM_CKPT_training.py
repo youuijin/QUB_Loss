@@ -17,8 +17,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 FGSM-CKPT Training')
 
-''''''''''''
-
+# env options
+parser.add_argument('--env', type=int, default=0)
 
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
@@ -31,7 +31,7 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
-parser.add_argument('--epoch', type=int, default=110)
+parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--device', type=int, default=0)
 
 # attack options
@@ -47,7 +47,7 @@ best_acc, best_adv_acc = 0, 0  # best test accuracy
 set_seed()
 method = 'FGSM_CKPT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{method}(eps{args.eps}_c{args.c})_epoch{args.epoch}_{args.normalize}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps}_c{args.c})_epoch{args.epoch}_{args.normalize}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
@@ -116,7 +116,6 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
-        print(loss.item())
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)

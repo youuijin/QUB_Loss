@@ -71,7 +71,10 @@ model = model.to(device)
 
 # Optimizer
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0002)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
+if args.sche == 'multistep':
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
+elif args.sche == 'multigit':
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.73), int(args.epoch*0.88), int(args.epoch*0.98)], gamma=0.1)
 
 # Loss function
 criterion_kl = nn.KLDivLoss(size_average=False)
@@ -152,9 +155,9 @@ for epoch in range(args.epoch):
     start = datetime.now()
     train(epoch)
     train_time += datetime.now() - start
-    if epoch%10 == 0:
+    if epoch%5 == 0:
         test(epoch)
-    if args.sche == 'multistep':
+    if args.sche == 'multistep' or args.sche == 'multigit':
         scheduler.step()
 tot_time = datetime.now() - train_start
 

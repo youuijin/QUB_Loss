@@ -46,6 +46,8 @@ print('==> Preparing data..')
 
 if args.normalize == "imagenet":
     norm_mean, norm_std = (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+elif args.normalize == "cifar":
+    norm_mean, norm_std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
 elif args.normalize == "twice":
     norm_mean, norm_std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
 else: 
