@@ -7,15 +7,14 @@ import csv
 
 import argparse
 from datetime import datetime, timedelta
-import time
 
 from utils.train_utils import *
 from attack.pgd_attack import PGDAttack
-from attack.fgsm_attack import FGSM_Attack
+from attack.guided_attack import Guided_Attack
 
 from torch.utils.tensorboard import SummaryWriter
 
-parser = argparse.ArgumentParser(description='PyTorch CIFAR10 FGSM-GA Training')
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 GAT Training')
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
@@ -26,14 +25,16 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
-parser.add_argument('--sche', default='cyclic', choices=['multistep', 'cyclic', 'none'], help='learning rate')
-parser.add_argument('--batch_size', type=int, default=128)
-parser.add_argument('--epoch', type=int, default=200)
+parser.add_argument('--sche', default='multistep', choices=['multistep', 'cyclic', 'none'], help='learning rate')
+parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--device', type=int, default=0)
 
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
-parser.add_argument('--lamb', type=float, default=0.2)
+parser.add_argument('--alpha', type=float, default=4.)
+parser.add_argument('--lamb', type=float, default=10.)
+parser.add_argument('--reg_mul', type=float, default=4.)
 
 args = parser.parse_args()
 
@@ -41,7 +42,7 @@ device = f'cuda:{args.device}'
 best_acc, best_adv_acc = 0, 0  # best test accuracy
 
 set_seed()
-method = 'FGSM_GA'
+method = 'GAT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_epoch{args.epoch}_{args.normalize}_{args.sche}_0.01_{cur}'
 
@@ -75,15 +76,11 @@ if args.sche == 'cyclic':
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
         step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
 elif args.sche == 'multistep':
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[70, 85], gamma=0.1)
 
 # Train Attack & Test Attack
-attack = FGSM_Attack(model, eps=args.eps, mean=norm_mean, std=norm_std, device=device)
+attack = Guided_Attack(model, eps=args.eps, alpha=args.alpha, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
-
-def l2_norm_batch(v):
-    norms = (v ** 2).sum([1, 2, 3]) ** 0.5
-    return norms
 
 # Train 1 epoch
 def train(epoch):
@@ -92,40 +89,26 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    for inputs, targets in train_loader:
+
+    if epoch == 80:
+        args.lamb *= args.reg_mul
+
+    for i, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        if args.loss == 'CE':
-            inputs = attack.perturb(inputs, targets)
-            outputs = model(inputs)
-            loss = F.cross_entropy(outputs, targets)
-            
-        elif args.loss == 'QUB':
-            outputs = model(inputs)
-            softmax = F.softmax(outputs, dim=1)
-            y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
 
-            adv_inputs = attack.perturb(inputs, targets)
-            adv_outputs = model(adv_inputs)
-            adv_norm = torch.norm(adv_outputs-outputs, dim=1)
+        outputs = model(inputs)
+        loss = F.cross_entropy(outputs, targets)
 
-            loss = F.cross_entropy(outputs, targets, reduction='none')
+        adv_inputs = attack.perturb(inputs, targets, alt=i%2)
+        adv_outputs = model(adv_inputs)
 
-            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
-            loss = upper_loss.mean()
+        Q_out = nn.Softmax(dim=1)(adv_outputs)
+        P_out = nn.Softmax(dim=1)(outputs)
 
-        grad1 = attack.get_grad(inputs, targets, uniform=False)
-        grad2 = attack.get_grad(inputs, targets, uniform=True)
+        reg_loss =  ((P_out - Q_out)**2.0).sum(1).mean(0)
 
-        grad1_norms, grad2_norms = l2_norm_batch(grad1), l2_norm_batch(grad2)
-        grad1_normalized = grad1 / grad1_norms[:, None, None, None]
-        grad2_normalized = grad2 / grad2_norms[:, None, None, None]
-        cos = torch.sum(grad1_normalized * grad2_normalized, (1, 2, 3))
-
-        print('CE Loss', loss.item(), '\tCos Loss', (1.0-cos.mean()))
-        
-        loss += args.lamb * (1.0 - cos.mean())
-        # print('tot:', loss)
+        loss = loss + args.lamb * reg_loss
 
         optimizer.zero_grad()
         loss.backward()

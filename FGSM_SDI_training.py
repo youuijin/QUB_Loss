@@ -105,82 +105,29 @@ lower_limit = ((0 - mean) / std)
 eps = args.eps/255./std
 alpha = args.alpha/255./std
 
-# def adv_FGSM_loss(grad,
-#                 x_natural,
-#                 y,
-#                 for_attacker = 0):
-#     if for_attacker == 0:
-#         model.train()
-#         attacker.eval()
-#     else:
-#         #model.eval()
-#         attacker.train()
-#     label_smoothing = Variable(torch.tensor(_label_smoothing(y, args.factor)).to(device))
-
-#     # x_natural.requires_grad_()
-#     # with torch.enable_grad():
-#     #     loss_natural = F.cross_entropy(model(x_natural), y)
-#     # grad = torch.autograd.grad(loss_natural, [x_natural])[0]
-#     advinput = torch.cat([x_natural, 1.0 * (torch.sign(grad))], 1).detach()
-
-#     # generate adversarial example
-#     perturbation = attacker(advinput)
-
-#     x_adv = x_natural + perturbation
-#     x_adv = torch.clamp(x_adv, lower_limit, upper_limit)
-
-#     x_adv.requires_grad_()
-#     # model.eval()
-#     with torch.enable_grad():
-#         #loss_adv = LabelSmoothLoss(model(x_adv), label_smoothing.float())
-
-#         loss_adv = F.cross_entropy(model(x_adv), y)
-#         grad_adv = torch.autograd.grad(loss_adv, [x_adv])[0]
-#         perturbation_1 = torch.clamp(alpha * torch.sign(grad_adv), -eps, eps)
-
-#     perturbation_total = perturbation + perturbation_1
-#     perturbation_total = torch.clamp(perturbation_total, -eps, eps)
-
-#     x_adv_final = x_natural + perturbation_total
-#     x_adv_final = torch.clamp(x_adv_final, lower_limit, upper_limit)
-
-#     # optimizer.zero_grad()
-#     # optimizer_att.zero_grad()
-#     output = model(x_adv_final)
-#     loss_robust = LabelSmoothLoss(output, label_smoothing.float())
-
-#     loss = loss_robust
-#     return loss,output
-
-def adv_FGSM_loss(net,
-                gradient,
-                factor,
-                attack_net,
-                x,
+def adv_FGSM_loss(grad,
+                x_natural,
                 y,
-                optim,
-                optim_att,
-                epsilon =(8 / 255.) / std,
-                alpha=(8 / 255.) / std,
                 for_attacker = 0):
     if for_attacker == 0:
-        net.train()
-        attack_net.eval()
+        model.train()
+        attacker.eval()
     else:
         #model.eval()
-        attack_net.train()
-    label_smoothing = Variable(torch.tensor(_label_smoothing(y, factor)).to(device))
+        attacker.train()
+    label_smoothing = Variable(torch.tensor(_label_smoothing(y, args.factor)).to(device))
+
     # x_natural.requires_grad_()
     # with torch.enable_grad():
     #     loss_natural = F.cross_entropy(model(x_natural), y)
     # grad = torch.autograd.grad(loss_natural, [x_natural])[0]
-    advinput = torch.cat([x, 1.0 * (torch.sign(gradient))], 1).detach()
+    advinput = torch.cat([x_natural, 1.0 * (torch.sign(grad))], 1).detach()
 
     # generate adversarial example
     perturbation = attacker(advinput)
 
-    x_adv = x + perturbation
-    #x_adv = clamp(x_adv, lower_limit, upper_limit)
+    x_adv = x_natural + perturbation
+    x_adv = torch.clamp(x_adv, lower_limit, upper_limit)
 
     x_adv.requires_grad_()
     # model.eval()
@@ -189,22 +136,21 @@ def adv_FGSM_loss(net,
 
         loss_adv = F.cross_entropy(model(x_adv), y)
         grad_adv = torch.autograd.grad(loss_adv, [x_adv])[0]
-        perturbation_1 = torch.clamp( alpha* torch.sign(grad_adv), -epsilon, epsilon)
+        perturbation_1 = torch.clamp(alpha * torch.sign(grad_adv), -eps, eps)
 
     perturbation_total = perturbation + perturbation_1
-    perturbation_total = torch.clamp(perturbation_total, -epsilon, epsilon)
+    perturbation_total = torch.clamp(perturbation_total, -eps, eps)
 
-    x_adv_final = x + perturbation_total
+    x_adv_final = x_natural + perturbation_total
+    x_adv_final = torch.clamp(x_adv_final, lower_limit, upper_limit)
 
     # optimizer.zero_grad()
     # optimizer_att.zero_grad()
-    output=model(x_adv_final)
-    loss_robust = LabelSmoothLoss(output,label_smoothing.float())
+    output = model(x_adv_final)
+    loss_robust = LabelSmoothLoss(output, label_smoothing.float())
 
     loss = loss_robust
-
     return loss,output
-
 
 # Train 1 epoch
 def train(epoch):
@@ -224,16 +170,9 @@ def train(epoch):
 
             attacker.zero_grad()
             model.zero_grad()
-            loss_adv, _ = adv_FGSM_loss(net=model,
-                                        gradient=grad,
-                                        factor=args.factor,
-                                        attack_net=attacker,
-                                        x=inputs,
+            loss_adv, _ = adv_FGSM_loss(grad=grad,
+                                        x_natural=inputs,
                                         y=targets,
-                                        optim=optimizer,
-                                        optim_att=optimizer_att,
-                                        epsilon=eps,
-                                        alpha=alpha,
                                         for_attacker=1)
 
             loss_adv=-loss_adv
@@ -246,16 +185,9 @@ def train(epoch):
         attacker.zero_grad()
 
         # calculate robust loss
-        loss, outputs = adv_FGSM_loss(net=model,
-                                    gradient=grad,
-                                    factor=args.factor,
-                                    attack_net=attacker,
-                                    x=inputs,
+        loss, outputs = adv_FGSM_loss(grad=grad,                                
+                                    x_natural=inputs,
                                     y=targets,
-                                    optim=optimizer,
-                                    optim_att=optimizer_att,
-                                    epsilon=eps,
-                                    alpha=alpha,
                                     for_attacker=0)
         loss.backward()
         optimizer.step()
@@ -308,8 +240,7 @@ for epoch in range(args.epoch):
     start = datetime.now()
     train(epoch)
     train_time += datetime.now() - start
-    if epoch%10 == 0:
-        test(epoch)
+    test(epoch)
     scheduler.step()
     attacker_scheduler.step()
 tot_time = datetime.now() - train_start

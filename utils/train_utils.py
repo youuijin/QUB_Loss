@@ -62,3 +62,27 @@ def set_dataloader(dataset, batch_size, norm_mean, norm_std):
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=0)
 
     return train_loader, test_loader, data_num
+
+def set_dataset(dataset, norm_mean, norm_std):
+    ### dataset ###
+    transform = transforms.Compose([transforms.Pad(padding=4),
+                                    transforms.ToTensor(),
+                                    transforms.Normalize(norm_mean, norm_std)])
+    transform_test = transforms.Compose([transforms.ToTensor(),
+                                        transforms.Normalize(norm_mean, norm_std)])
+
+    if dataset == 'cifar10':
+        train_data = CIFAR10(root='./data', train=True, download=True, transform=transform)
+        test_data = CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+        data_num = 10
+    elif dataset == 'cifar100':
+        train_data = CIFAR100(root='./data', train=True, download=True, transform=transform)
+        test_data = CIFAR100(root='./data', train=False, download=True, transform=transform_test)
+        data_num = 100
+    elif dataset == 'svhn':
+        train_data = SVHN(root='./data', split='train', download=True, transform=transform)
+        test_data = SVHN(root='./data', split='test', download=True, transform=transform)
+        data_num = 10
+
+
+    return train_data, test_data, data_num
