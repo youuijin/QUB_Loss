@@ -44,14 +44,28 @@ args = parser.parse_args()
 
 device = f'cuda:{args.device}'
 best_acc, best_adv_acc = 0, 0  # best test accuracy
+best_epoch = -1
 
-set_seed()
+set_seed(seed=0)
 method = 'FGSM_PGI'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{args.loss}_{method}(eps{args.eps}_mom{args.momentum_decay}_lamb{args.lamb}_{args.delta_init})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
+# log_name = f'{args.loss}_{method}(eps{args.eps}_mom{args.momentum_decay}_lamb{args.lamb}_{args.delta_init})_epoch{args.epoch}_{args.normalize}_{args.sche}_{args.factor}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps})_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
+
+def _label_smoothing(label, factor):
+    one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
+
+    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(10 - 1))
+
+    return result
+
+def LabelSmoothLoss(input, target):
+    log_prob = F.log_softmax(input, dim=-1)
+    loss = (-target * log_prob).sum(dim=-1).mean()
+    return loss
 
 # Data
 print('==> Preparing data..')
@@ -75,6 +89,51 @@ cifar_x, cifar_y = None, None
 for i, (X, y) in enumerate(train_loader):
     cifar_x, cifar_y = X.to(device), y.to(device)
 
+# Model
+print('==> Building model..')
+model = set_model(model_name=args.model, n_class=n_way)
+model = model.to(device)
+
+# Train Attack & Test Attack
+test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+
+
+num_of_example = 50000
+batch_size = args.batch_size
+
+iter_num = num_of_example // batch_size + (0 if num_of_example % batch_size == 0 else 1)
+
+# Optimizer
+# lr_steps = args.epoch * iter_num
+# optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+# scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[lr_steps * 100/110, lr_steps * 105 / 110], gamma=0.1)
+
+optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+lr_steps = args.epoch * iter_num
+if args.env == 1:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/200), int(lr_steps*150/200)], gamma=0.1)
+elif args.env == 2:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/110), int(lr_steps*105/110)], gamma=0.1)
+elif args.env == 3:
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=0.1,
+        step_size_up=lr_steps/2, step_size_down=lr_steps/2)
+    
+else:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[lr_steps * 100/110, lr_steps * 105 / 110], gamma=0.1)
+
+mean = torch.tensor(norm_mean).to(device).view(1, 3, 1, 1)
+std = torch.tensor(norm_std).to(device).view(1, 3, 1, 1)
+upper_limit = ((1 - mean) / std)
+lower_limit = ((0 - mean) / std)
+eps = args.eps/255./std
+alpha = args.alpha/255./std
+
+
+print('start training..')
+
+train_time = timedelta()
+train_start = datetime.now()
+
 def atta_aug(input_tensor, rst):
     batch_size = input_tensor.shape[0]
     x = torch.zeros(batch_size)
@@ -95,52 +154,21 @@ def atta_aug(input_tensor, rst):
 
     return rst, {"crop": {'x': x, 'y': y}, "flipped": flip}
 
-# Model
-print('==> Building model..')
-model = set_model(model_name=args.model, n_class=n_way)
-model = model.to(device)
 
-# Train Attack & Test Attack
-test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
-# Optimizer
-optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 105], gamma=0.1)
-
-def _label_smoothing(label, factor):
-    one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
-
-    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(10 - 1))
-
-    return result
-
-def LabelSmoothLoss(input, target):
-    log_prob = F.log_softmax(input, dim=-1)
-    loss = (-target * log_prob).sum(dim=-1).mean()
-    return loss
-
-num_of_example = 50000
-batch_size = args.batch_size
-
-iter_num = num_of_example // batch_size + (0 if num_of_example % batch_size == 0 else 1)
-
-mean = torch.tensor(norm_mean).to(device).view(1, 3, 1, 1)
-std = torch.tensor(norm_std).to(device).view(1, 3, 1, 1)
-upper_limit = ((1 - mean) / std)
-lower_limit = ((0 - mean) / std)
-eps = args.eps/255./std
-alpha = args.alpha/255./std
-
-# Train 1 epoch
-def train(epoch):
+for epoch in range(args.epoch):
+    model.train()
+    start = datetime.now()
+    # a_delta, a_mom = train(epoch, cifar_x, cifar_y, a_delta, a_mom)
     train_loss = 0
     correct = 0
     total = 0
 
-    global cifar_x, cifar_y, all_delta, all_momentum
+    # global cifar_x, cifar_y, all_delta, all_momentum
 
     batch_size = args.batch_size
     cur_order = np.random.permutation(num_of_example)
+    iter_num = num_of_example // batch_size + (0 if num_of_example % batch_size == 0 else 1)
     batch_idx = -batch_size
 
     if epoch % args.epoch_reset == 0:
@@ -149,11 +177,12 @@ def train(epoch):
             all_delta = torch.zeros_like(temp).to(device)
             all_momentum=torch.zeros_like(temp).to(device)
         if args.delta_init == 'random':
-            for j in range(len(eps)):
-                all_delta[:, j, :, :].uniform_(-eps[j][0][0].item(), eps[j][0][0].item())
+            for j in range(len(eps.squeeze())):
+                all_delta[:, j, :, :].uniform_(-eps[0][j][0][0].item(), eps[0][j][0][0].item())
             #all_delta.data = clamp(all_delta, lower_limit - cifar_x, upper_limit - cifar_x)
             #all_delta.requires_grad = True
             all_delta.data = torch.clamp(alpha * torch.sign(all_delta), -eps, eps)
+            # print(all_data.data)
             #all_delta.data[:cifar_x.size(0)] = clamp(all_delta[:cifar_x.size(0)], lower_limit - cifar_x, upper_limit - cifar_x)
     
     idx = torch.randperm(cifar_x.shape[0])
@@ -165,8 +194,8 @@ def train(epoch):
     
     for i in range(iter_num):
         batch_idx = (batch_idx + batch_size) if batch_idx + batch_size < num_of_example else 0
-        X = cifar_x[cur_order[batch_idx:min(num_of_example, batch_idx + batch_size)]].clone().detach()
-        y = cifar_y[cur_order[batch_idx:min(num_of_example, batch_idx + batch_size)]].clone().detach()
+        X=cifar_x[cur_order[batch_idx:min(num_of_example, batch_idx + batch_size)]].clone().detach()
+        y= cifar_y[cur_order[batch_idx:min(num_of_example, batch_idx + batch_size)]].clone().detach()
         delta = all_delta[cur_order[batch_idx:min(num_of_example, batch_idx + batch_size)]].clone().detach()
         next_delta = all_delta[cur_order[batch_idx:min(num_of_example, batch_idx + batch_size)]].clone().detach()
 
@@ -175,7 +204,7 @@ def train(epoch):
         y=y.to(device)
         batch_size = X.shape[0]
 
-        ## add Att
+        # ## add Att
         rst = torch.zeros(batch_size, 3, 32, 32).to(device)
         X, transform_info = atta_aug(X, rst)
 
@@ -232,6 +261,7 @@ def train(epoch):
         train_loss += loss.item() * y.size(0)
         correct += (output.max(1)[1] == y).sum().item()
         total += y.size(0)
+
         scheduler.step()
 
         all_momentum[cur_order[batch_idx:min(num_of_example, batch_idx + batch_size)]] = momentum
@@ -242,10 +272,10 @@ def train(epoch):
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
 
-def test(epoch):
-    global best_acc
-    global best_adv_acc
-    global best_epoch
+    # print(f'Epoch {epoch}: acc {100.*correct/total} \t loss {round(train_loss/total, 4)}')
+
+    train_time += datetime.now() - start
+    
     model.eval()
     correct, adv_correct = 0, 0
     total = 0
@@ -266,28 +296,25 @@ def test(epoch):
         writer.add_scalar('test/SA', 100.*correct/total, epoch)
         writer.add_scalar('test/RA', 100.*adv_correct/total, epoch)
 
+    # print('test:', 'SA:', 100.*correct/total, '\tRA:',  100.*adv_correct/total)
+
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./saved_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
-
-print('start training..')
-
-train_time = timedelta()
-train_start = datetime.now()
-for epoch in range(args.epoch):
-    start = datetime.now()
-    train(epoch)
-    train_time += datetime.now() - start
-    test(epoch)
-    scheduler.step()
+    
+    
 tot_time = datetime.now() - train_start
 
 print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
-with open(f'./{args.dataset}.csv', 'a', encoding='utf-8', newline='') as f:
+if args.env>0:
+    file_name = f'./csvs/env{args.env}/{args.model}.csv'
+else:
+    file_name = f'./{args.dataset}.csv'
+with open(file_name, 'a', encoding='utf-8', newline='') as f:
     wr = csv.writer(f)
     wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])

@@ -16,6 +16,10 @@ from attack.fgsm_attack import FGSM_Attack
 from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 FGSM-GA Training')
+
+# env options
+parser.add_argument('--env', type=int, default=0)
+
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
@@ -26,6 +30,7 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
+parser.add_argument('--lr_min', default=0.0, type=float, help='learning rate')
 parser.add_argument('--sche', default='cyclic', choices=['multistep', 'cyclic', 'none'], help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=200)
@@ -43,10 +48,11 @@ best_acc, best_adv_acc = 0, 0  # best test accuracy
 set_seed()
 method = 'FGSM_GA'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_epoch{args.epoch}_{args.normalize}_{args.sche}_0.01_{cur}'
+# log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_{args.lr_min}_epoch{args.epoch}_{args.sche}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps})_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
+writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 
 # Data
 print('==> Preparing data..')
@@ -68,14 +74,32 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Optimizer
+# optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+# lr_steps = len(train_loader) * args.epoch
+# if args.sche == 'cyclic':
+#     # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=args.lr_min, max_lr=args.lr,
+#     #     step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
+#     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=args.lr_min, max_lr=args.lr,
+#         step_size_up=int(lr_steps * 12/30), step_size_down=int(lr_steps*18/30))
+# elif args.sche == 'multistep':
+#     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-lr_steps = len(train_loader) * args.epoch
-if args.sche == 'cyclic':
-    lr_min = 0.01
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
-        step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
-elif args.sche == 'multistep':
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
+lr_steps = args.epoch * len(train_loader)
+if args.env == 1:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/200), int(lr_steps*150/200)], gamma=0.1)
+elif args.env == 2:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/110), int(lr_steps*105/110)], gamma=0.1)
+elif args.env == 3:
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=0.1,
+        step_size_up=lr_steps/2, step_size_down=lr_steps/2)
+else:
+    if args.sche == 'cyclic':
+        # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=args.lr_min, max_lr=args.lr,
+        #     step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
+        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=args.lr_min, max_lr=args.lr,
+            step_size_up=int(lr_steps * 12/30), step_size_down=int(lr_steps*18/30))
+    elif args.sche == 'multistep':
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 
 # Train Attack & Test Attack
 attack = FGSM_Attack(model, eps=args.eps, mean=norm_mean, std=norm_std, device=device)
@@ -122,7 +146,7 @@ def train(epoch):
         grad2_normalized = grad2 / grad2_norms[:, None, None, None]
         cos = torch.sum(grad1_normalized * grad2_normalized, (1, 2, 3))
 
-        print('CE Loss', loss.item(), '\tCos Loss', (1.0-cos.mean()))
+        # print('CE Loss', loss.item(), '\tCos Loss', (1.0-cos.mean()))
         
         loss += args.lamb * (1.0 - cos.mean())
         # print('tot:', loss)
@@ -135,6 +159,8 @@ def train(epoch):
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
+
+        scheduler.step()
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
@@ -163,11 +189,13 @@ def test(epoch):
         # print('test acc:', 100.*correct/total, 'test adv acc:', 100.*adv_correct/total)
         writer.add_scalar('test/SA', 100.*correct/total, epoch)
         writer.add_scalar('test/RA', 100.*adv_correct/total, epoch)
+    # print('test/SA', 100.*correct/total)
+    # print('test/RA', 100.*adv_correct/total)
 
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./saved_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
@@ -181,11 +209,15 @@ for epoch in range(args.epoch):
     train(epoch)
     train_time += datetime.now() - start
     test(epoch)
-    scheduler.step()
+    # scheduler.step()
 tot_time = datetime.now() - train_start
 
 print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
-with open(f'./{args.dataset}.csv', 'a', encoding='utf-8', newline='') as f:
+if args.env>0:
+    file_name = f'./csvs/env{args.env}/{args.model}.csv'
+else:
+    file_name = f'./{args.dataset}.csv'
+with open(file_name, 'a', encoding='utf-8', newline='') as f:
     wr = csv.writer(f)
     wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])

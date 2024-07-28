@@ -43,7 +43,8 @@ best_acc, best_adv_acc = 0, 0  # best test accuracy
 set_seed()
 method = 'FGSM_RS'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{args.loss}_{method}(eps{args.eps}_{args.alpha})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
+# log_name = f'{args.loss}_{method}(eps{args.eps}_{args.alpha})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps})_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
@@ -68,14 +69,30 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Optimizer
+# optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+# lr_steps = len(train_loader) * args.epoch
+# if args.sche == 'cyclic':
+#     lr_min = 0.0
+#     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
+#         step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
+# elif args.sche == 'multistep':
+#     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-lr_steps = len(train_loader) * args.epoch
-if args.sche == 'cyclic':
-    lr_min = 0.0
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
-        step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
-elif args.sche == 'multistep':
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
+lr_steps = args.epoch * len(train_loader)
+if args.env == 1:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/200), int(lr_steps*150/200)], gamma=0.1)
+elif args.env == 2:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/110), int(lr_steps*105/110)], gamma=0.1)
+elif args.env == 3:
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=0.1,
+        step_size_up=lr_steps/2, step_size_down=lr_steps/2)
+else:
+    if args.sche == 'cyclic':
+        lr_min = 0.0
+        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
+            step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
+    elif args.sche == 'multistep':
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 
 # Train Attack & Test Attack
 attack = FGSM_RS_Attack(model, eps=args.eps, alpha=args.alpha, mean=norm_mean, std=norm_std, device=device)
@@ -118,9 +135,8 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
-        # print(scheduler.get_last_lr(), loss.item())
-
         scheduler.step()
+
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
@@ -152,7 +168,7 @@ def test(epoch):
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./saved_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
@@ -172,6 +188,10 @@ tot_time = datetime.now() - train_start
 
 print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
-with open(f'./{args.dataset}.csv', 'a', encoding='utf-8', newline='') as f:
+if args.env>0:
+    file_name = f'./csvs/env{args.env}/{args.model}.csv'
+else:
+    file_name = f'./{args.dataset}.csv'
+with open(file_name, 'a', encoding='utf-8', newline='') as f:
     wr = csv.writer(f)
     wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])
