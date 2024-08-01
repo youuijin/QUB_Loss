@@ -24,6 +24,8 @@ parser.add_argument('--model_path', type=str, default="")
 parser.add_argument('--saved_dir', type=str, default="./saved_models")
 parser.add_argument('--csv_name', type=str, default="./test.csv")
 
+parser.add_argument('--env', type=int, default=0)
+
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
 
@@ -59,14 +61,7 @@ else:
         if not check_is_tested(exist_model_path):
             model_paths.append(exist_model_path)
 
-if args.normalize == "imagenet":
-    norm_mean, norm_std = (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
-elif args.normalize == "cifar":
-    norm_mean, norm_std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
-elif args.normalize == "twice":
-    norm_mean, norm_std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
-else: 
-    norm_mean, norm_std = (0, 0, 0), (1, 1, 1)
+norm_mean, norm_std = (0, 0, 0), (1, 1, 1)
 
 _, test_loader, n_way = set_dataloader(args.dataset, args.batch_size, norm_mean, norm_std)
 
@@ -113,4 +108,4 @@ for model_path in model_paths:
 
 with open(f'{args.csv_name}', 'a', encoding='utf-8', newline='') as f:
     wr = csv.writer(f)
-    wr.writerow([f'{args.model_path}', attack_success[0][0]] + [attack_success[i][1] for i in range(4)])
+    wr.writerow([f'{args.model_path}', f'env{args.env}', attack_success[0][0]] + [attack_success[i][1] for i in range(4)])

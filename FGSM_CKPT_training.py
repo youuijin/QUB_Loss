@@ -48,7 +48,7 @@ set_seed()
 method = 'FGSM_CKPT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_c{args.c})_epoch{args.epoch}_{cur}'
-log_name = f'{args.loss}_{method}(eps{args.eps})_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
@@ -162,7 +162,7 @@ def test(epoch):
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./env_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch

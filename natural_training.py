@@ -41,10 +41,10 @@ set_seed()
 method = 'no_AT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{method}_epoch{args.epoch}_{args.normalize}_{cur}'
-log_name = f'CE_{method}_{cur}'
+log_name = f'CE_{method}_lr{args.lr}_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
+writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 
 # Data
 print('==> Preparing data..')
@@ -140,7 +140,7 @@ def test(epoch):
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:
-        torch.save(model.state_dict(), f'./env_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.model}_{log_name}.pt')
         best_adv_acc = 100.*adv_correct/total
         best_acc = acc
         best_epoch = epoch

@@ -14,7 +14,12 @@ from attack.pgd_attack import PGDAttack
 
 from torch.utils.tensorboard import SummaryWriter
 
+
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 PGD_Linf Training')
+
+# env options
+parser.add_argument('--env', type=int, default=0)
+
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
@@ -43,10 +48,10 @@ set_seed()
 method = 'Free_AT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{method}(eps{args.eps}_m{args.m})_epoch{args.epoch}_lr{args.lr}_{args.normalize}_{cur}'
-log_name = f'{args.loss}_{method}(eps{args.eps})_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
+writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 
 # Data
 print('==> Preparing data..')
@@ -85,7 +90,6 @@ elif args.env == 3:
         step_size_up=lr_steps/2, step_size_down=lr_steps/2)
 else: 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
-
 
 # Train Attack & Test Attack
 test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
@@ -176,7 +180,7 @@ def test(epoch):
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./env_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch

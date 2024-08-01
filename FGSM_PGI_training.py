@@ -15,6 +15,11 @@ from attack.pgd_attack import PGDAttack
 from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 FGSM-PGI Training')
+
+# env options
+parser.add_argument('--env', type=int, default=0)
+
+
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
@@ -50,10 +55,10 @@ set_seed(seed=0)
 method = 'FGSM_PGI'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_mom{args.momentum_decay}_lamb{args.lamb}_{args.delta_init})_epoch{args.epoch}_{args.normalize}_{args.sche}_{args.factor}_{cur}'
-log_name = f'{args.loss}_{method}(eps{args.eps})_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
+writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 
 def _label_smoothing(label, factor):
     one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
@@ -252,7 +257,24 @@ for epoch in range(args.epoch):
         # print(adv_label[0])
         # adv_label = F.normalize((label_smoothing + delta_y), p=1, dim=-1)
         loss_fn = torch.nn.MSELoss(reduction='mean')
-        loss = LabelSmoothLoss(output, (label_smoothing).float())+args.lamb*loss_fn(output.float(), ori_output.float())
+        if args.loss == 'CE':
+            loss = LabelSmoothLoss(output, (label_smoothing).float())+args.lamb*loss_fn(output.float(), ori_output.float())
+        elif args.loss == 'QUB':
+            # TODO: check loss calculation
+            clean_outputs = model(X)
+            softmax = F.softmax(clean_outputs, dim=1)
+            y_onehot = F.one_hot(y, num_classes = softmax.shape[1])
+
+            # adv_inputs = attack.perturb(inputs, targets)
+            # adv_outputs = model(adv_inputs)
+            adv_norm = torch.norm(clean_outputs-output, dim=1)
+
+            loss = F.cross_entropy(X, y, reduction='none')
+
+            upper_loss = loss + torch.sum((adv_outputs-clean_outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
+            loss = upper_loss.mean()
+
+            loss += args.lamb * loss_fn(output.float(), ori_output.float())
         optimizer.zero_grad()
         # with amp.scale_loss(loss, optimizer) as scaled_loss:
         loss.backward()
@@ -301,7 +323,7 @@ for epoch in range(args.epoch):
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./env_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch

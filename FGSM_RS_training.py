@@ -16,6 +16,11 @@ from attack.fgsm_attack import FGSM_RS_Attack
 from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 FGSM-RS Training')
+
+# env options
+parser.add_argument('--env', type=int, default=0)
+
+
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
@@ -44,10 +49,10 @@ set_seed()
 method = 'FGSM_RS'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_{args.alpha})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
-log_name = f'{args.loss}_{method}(eps{args.eps})_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
+writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 
 # Data
 print('==> Preparing data..')
@@ -168,7 +173,7 @@ def test(epoch):
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./env_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
