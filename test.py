@@ -27,7 +27,7 @@ parser.add_argument('--csv_name', type=str, default="./test.csv")
 parser.add_argument('--env', type=int, default=0)
 
 # attack options
-parser.add_argument('--eps', type=float, default=8.)
+parser.add_argument('--eps', type=float, default=8.0)
 
 args = parser.parse_args()
 
@@ -106,6 +106,6 @@ for model_path in model_paths:
         print(f"natural accuracy: {attack_success[i][0]}, robust accuracy: {attack_success[i][1]}")
     # print()
 
-with open(f'{args.csv_name}', 'a', encoding='utf-8', newline='') as f:
-    wr = csv.writer(f)
-    wr.writerow([f'{args.model_path}', f'env{args.env}', attack_success[0][0]] + [attack_success[i][1] for i in range(4)])
+    with open(f'{args.csv_name}', 'a', encoding='utf-8', newline='') as f:
+        wr = csv.writer(f)
+        wr.writerow([f'{model_path}', args.eps, f'env{args.env}', attack_success[0][0]] + [attack_success[i][1] for i in range(4)])
