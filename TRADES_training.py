@@ -39,6 +39,9 @@ parser.add_argument('--num_step', type=int, default=10)
 parser.add_argument('--eps', type=float, default=8.)
 parser.add_argument('--alpha', type=float, default=2.) # step size
 
+# test options
+parser.add_argument('--test_eps', type=float, default=8.)
+
 args = parser.parse_args()
 
 device = f'cuda:{args.device}'
@@ -81,7 +84,7 @@ criterion_kl = nn.KLDivLoss(size_average=False)
 
 # Train Attack & Test Attack
 attack = TRADESAttack(model, eps=args.eps, alpha=args.alpha, iter=args.num_step, mean=norm_mean, std=norm_std, device=device)
-test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
 def train(epoch):

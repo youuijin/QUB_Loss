@@ -10,11 +10,11 @@ from datetime import datetime, timedelta
 
 from utils.train_utils import *
 from attack.pgd_attack import PGDAttack
-from attack.guided_attack import Guided_Attack
+from attack.quadratic_attack import Quadratic_Attack
 
 from torch.utils.tensorboard import SummaryWriter
 
-parser = argparse.ArgumentParser(description='PyTorch CIFAR10 GAT Training')
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 QUB Training')
 
 # env options
 parser.add_argument('--env', type=int, default=0)
@@ -37,9 +37,7 @@ parser.add_argument('--device', type=int, default=0)
 
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
-parser.add_argument('--alpha', type=float, default=4.)
-parser.add_argument('--lamb', type=float, default=10.)
-parser.add_argument('--reg_mul', type=float, default=4.)
+parser.add_argument('--init', type=str, choices=['Z', 'U', 'B', 'N'], default='Z')
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
@@ -50,17 +48,16 @@ device = f'cuda:{args.device}'
 best_acc, best_adv_acc = 0, 0  # best test accuracy
 
 set_seed()
-method = 'GAT'
+method = 'QUB_AT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_epoch{args.epoch}_{args.normalize}_{args.sche}_0.01_{cur}'
-log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+log_name = f'{args.loss}_{method}_{args.init}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 if args.log_upper:
     upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
     real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
-
 
 # Data
 print('==> Preparing data..')
@@ -82,15 +79,6 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Optimizer
-# optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-# lr_steps = len(train_loader) * args.epoch
-# if args.sche == 'cyclic':
-#     lr_min = 0.01
-#     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
-#         step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
-# elif args.sche == 'multistep':
-#     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[lr_steps*70/100, lr_steps*85/100], gamma=0.1)
-
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 lr_steps = args.epoch * len(train_loader)
 if args.env == 1:
@@ -101,7 +89,7 @@ elif args.env == 3:
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=0.1,
         step_size_up=lr_steps/2, step_size_down=lr_steps/2)
 else: 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 
 def _label_smoothing(label, factor):
     one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
@@ -114,7 +102,7 @@ def LabelSmoothLoss(input, target):
     return loss
 
 # Train Attack & Test Attack
-attack = Guided_Attack(model, eps=args.eps, alpha=args.alpha, mean=norm_mean, std=norm_std, device=device)
+attack = Quadratic_Attack(model, eps=args.eps, alpha=args.alpha, init=args.init, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
@@ -126,48 +114,27 @@ def train(epoch):
     total = 0
     real_adv_loss = 0
 
-    if epoch == 85:
-        args.lamb *= args.reg_mul
-
-    for i, (inputs, targets) in enumerate(train_loader):
+    for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-
-        if args.loss == 'CE': # Default : actually not just CE, GAT
-            # default setting
+        if args.loss == 'CE':
+            inputs = attack.perturb(inputs, targets)
             outputs = model(inputs)
             loss = F.cross_entropy(outputs, targets)
-
-            adv_inputs = attack.perturb(inputs, targets, alt=i%2)
-            adv_outputs = model(adv_inputs)
-
-            Q_out = nn.Softmax(dim=1)(adv_outputs)
-            P_out = nn.Softmax(dim=1)(outputs)
-
-            reg_loss = ((P_out - Q_out)**2.0).sum(1).mean(0)
-
-            loss = loss + args.lamb * reg_loss
-
-        # elif args.loss == 'CE':
-        #     # simple AT
-        #     adv_inputs = attack.perturb(inputs, targets, alt=i%2)
-        #     adv_outputs = model(adv_inputs)
-        #     loss = F.cross_entropy(adv_outputs, targets)
-
         elif args.loss == 'QUB':
             outputs = model(inputs)
             softmax = F.softmax(outputs, dim=1)
             y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
-            loss_natural = F.cross_entropy(outputs, targets, reduction='none')
-            
-            adv_inputs = attack.perturb(inputs, targets, alt=i%2)
+
+            adv_inputs = attack.perturb(inputs, targets)
             adv_outputs = model(adv_inputs)
             adv_norm = torch.norm(adv_outputs-outputs, dim=1)
 
-            upper_loss = loss_natural + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
+            loss = F.cross_entropy(outputs, targets, reduction='none')
+
+            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
             loss = upper_loss.mean()
 
-        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
@@ -180,7 +147,7 @@ def train(epoch):
             real_adv_loss += F.cross_entropy(outputs, targets).item()
 
         scheduler.step()
-
+    
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
     if args.log_upper:

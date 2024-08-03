@@ -32,6 +32,7 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
+parser.add_argument('--log_upper', default=False, action='store_true')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=110)
@@ -43,6 +44,9 @@ parser.add_argument('--alpha', type=float, default=8.)
 parser.add_argument('--lr_att', type=float, default=0.001)
 parser.add_argument('--k', type=int, default=20)
 parser.add_argument('--factor', default=0.5, type=float)
+
+# test options
+parser.add_argument('--test_eps', type=float, default=8.)
 
 args = parser.parse_args()
 
@@ -57,6 +61,9 @@ log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+if args.log_upper:
+    upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
+    real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
 
 # Data
 print('==> Preparing data..')
@@ -79,7 +86,7 @@ model = model.to(device)
 
 # Train Attack & Test Attack
 attacker = One_Layer_Attacker(eps=args.eps/255., input_channel=6).to(device)
-test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Optimizer
 # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
@@ -111,10 +118,9 @@ else:
 
 def _label_smoothing(label, factor):
     one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
-
     result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(10 - 1))
-
     return result
+
 def LabelSmoothLoss(input, target):
     log_prob = F.log_softmax(input, dim=-1)
     loss = (-target * log_prob).sum(dim=-1).mean()
@@ -135,14 +141,9 @@ def adv_FGSM_loss(grad,
         model.train()
         attacker.eval()
     else:
-        #model.eval()
         attacker.train()
     label_smoothing = Variable(torch.tensor(_label_smoothing(y, args.factor)).to(device))
 
-    # x_natural.requires_grad_()
-    # with torch.enable_grad():
-    #     loss_natural = F.cross_entropy(model(x_natural), y)
-    # grad = torch.autograd.grad(loss_natural, [x_natural])[0]
     advinput = torch.cat([x_natural, 1.0 * (torch.sign(grad))], 1).detach()
 
     # generate adversarial example
@@ -152,10 +153,8 @@ def adv_FGSM_loss(grad,
     x_adv = torch.clamp(x_adv, lower_limit, upper_limit)
 
     x_adv.requires_grad_()
-    # model.eval()
-    with torch.enable_grad():
-        #loss_adv = LabelSmoothLoss(model(x_adv), label_smoothing.float())
 
+    with torch.enable_grad():
         loss_adv = F.cross_entropy(model(x_adv), y)
         grad_adv = torch.autograd.grad(loss_adv, [x_adv])[0]
         perturbation_1 = torch.clamp(alpha * torch.sign(grad_adv), -eps, eps)
@@ -166,19 +165,20 @@ def adv_FGSM_loss(grad,
     x_adv_final = x_natural + perturbation_total
     x_adv_final = torch.clamp(x_adv_final, lower_limit, upper_limit)
 
-    # optimizer.zero_grad()
-    # optimizer_att.zero_grad()
     output = model(x_adv_final)
-    loss_robust = LabelSmoothLoss(output, label_smoothing.float())
+    # default : Label Smoothing Loss -> Change to CE Loss
+    # loss_robust = LabelSmoothLoss(output, label_smoothing.float())
+    loss_robust = F.cross_entropy(output, y)
 
     loss = loss_robust
-    return loss,output
+    return loss, output
 
 # Train 1 epoch
 def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
+    real_adv_loss = 0
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         inputs.requires_grad_()
@@ -219,11 +219,17 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
+        if args.log_upper:
+            real_adv_loss += F.cross_entropy(outputs, targets).item()
+
         scheduler.step()
         attacker_scheduler.step()
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
+    if args.log_upper:
+        upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
+        real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
 
 def test(epoch):
     global best_acc

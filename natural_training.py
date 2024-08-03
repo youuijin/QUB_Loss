@@ -32,6 +32,9 @@ parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--device', type=int, default=0)
 
+# test options
+parser.add_argument('--test_eps', type=float, default=8.)
+
 args = parser.parse_args()
 
 device = f'cuda:{args.device}'
@@ -84,8 +87,18 @@ else:
 def criterion(outputs, targets):
     return F.cross_entropy(outputs, targets)
 
+def _label_smoothing(label, factor):
+    one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
+    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(10 - 1))
+    return result
+
+def LabelSmoothLoss(input, target):
+    log_prob = F.log_softmax(input, dim=-1)
+    loss = (-target * log_prob).sum(dim=-1).mean()
+    return loss
+
 # Test Attack
-test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
 def train(epoch):

@@ -30,6 +30,7 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
+parser.add_argument('--log_upper', default=False, action='store_true')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--sche', default='cyclic', choices=['multistep', 'cyclic', 'none'], help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
@@ -39,6 +40,9 @@ parser.add_argument('--device', type=int, default=0)
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
 parser.add_argument('--alpha', type=float, default=10.)
+
+# test options
+parser.add_argument('--test_eps', type=float, default=8.)
 
 args = parser.parse_args()
 
@@ -53,6 +57,10 @@ log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+if args.log_upper:
+    upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
+    real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
+
 
 # Data
 print('==> Preparing data..')
@@ -99,9 +107,19 @@ else:
     elif args.sche == 'multistep':
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 
+def _label_smoothing(label, factor):
+    one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
+    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(10 - 1))
+    return result
+
+def LabelSmoothLoss(input, target):
+    log_prob = F.log_softmax(input, dim=-1)
+    loss = (-target * log_prob).sum(dim=-1).mean()
+    return loss
+
 # Train Attack & Test Attack
 attack = FGSM_RS_Attack(model, eps=args.eps, alpha=args.alpha, mean=norm_mean, std=norm_std, device=device)
-test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
 def train(epoch):
@@ -110,6 +128,7 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
+    real_adv_loss = 0
     for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -140,10 +159,16 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
+        if args.log_upper:
+            real_adv_loss += F.cross_entropy(adv_outputs, targets).item()
+
         scheduler.step()
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
+    if args.log_upper:
+        upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
+        real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
 
 def test(epoch):

@@ -29,6 +29,7 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
+parser.add_argument('--log_upper', default=False, action='store_true')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--sche', default='multistep', choices=['multistep', 'cyclic'], help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
@@ -45,6 +46,12 @@ parser.add_argument('--delta_init', default='random', choices=['zero', 'random',
                         help='Perturbation initialization method')
 parser.add_argument('--factor', default=0.6, type=float, help='Label Smoothing')
 
+# QUB options
+parser.add_argument('--wo_regularizer', action='store_true', default=False, help='if true, dont use MSE Loss')
+
+# test options
+parser.add_argument('--test_eps', type=float, default=8.)
+
 args = parser.parse_args()
 
 device = f'cuda:{args.device}'
@@ -59,6 +66,9 @@ log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+if args.log_upper:
+    upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
+    real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
 
 def _label_smoothing(label, factor):
     one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
@@ -100,8 +110,7 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Train Attack & Test Attack
-test_attack = PGDAttack(model, eps=8., alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
-
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 num_of_example = 50000
 batch_size = args.batch_size
@@ -133,7 +142,6 @@ lower_limit = ((0 - mean) / std)
 eps = args.eps/255./std
 alpha = args.alpha/255./std
 
-
 print('start training..')
 
 train_time = timedelta()
@@ -159,8 +167,6 @@ def atta_aug(input_tensor, rst):
 
     return rst, {"crop": {'x': x, 'y': y}, "flipped": flip}
 
-
-
 for epoch in range(args.epoch):
     model.train()
     start = datetime.now()
@@ -168,6 +174,7 @@ for epoch in range(args.epoch):
     train_loss = 0
     correct = 0
     total = 0
+    real_adv_loss = 0
 
     # global cifar_x, cifar_y, all_delta, all_momentum
 
@@ -214,18 +221,13 @@ for epoch in range(args.epoch):
         X, transform_info = atta_aug(X, rst)
 
         label_smoothing = Variable(torch.tensor(_label_smoothing(y, args.factor)).to(device)).float()
-        # delta.requires_grad = True
-        # delta.data = clamp(alpha * torch.sign(delta), -epsilon, epsilon)
-        # delta.data[:X.size(0)] = clamp(delta[:X.size(0)], lower_limit - X, upper_limit - X)
-        #
-        # delta_y = torch.zeros_like(label_smoothing).to(device)
 
         delta.requires_grad = True
-        # delta_y.requires_grad = True
-        #delta.data[:X.size(0)] = clamp(delta[:X.size(0)], lower_limit - X, upper_limit - X)
         ori_output = model(X + delta[:X.size(0)])
 
-        ori_loss = LabelSmoothLoss(ori_output, label_smoothing.float())
+        # default : Label Smoothing Loss -> Change to CE Loss
+        # ori_loss = LabelSmoothLoss(ori_output, label_smoothing.float())
+        ori_loss = F.cross_entropy(ori_output, y)
 
 
         decay = args.momentum_decay
@@ -242,25 +244,16 @@ for epoch in range(args.epoch):
         delta.data = torch.clamp(delta + alpha * torch.sign(x_grad), -eps, eps)
         delta.data[:X.size(0)] = torch.clamp(delta[:X.size(0)], lower_limit - X, upper_limit - X)
 
-        # delta_y.data = clamp(delta_y + torch.tensor(args.epsilon_y) * torch.sign(y_grad),
-        #                      -torch.tensor(args.epsilon_y),
-        #                       torch.tensor(args.epsilon_y))
-        # delta_y.data = clamp(delta_y, lower_limit_y - label_smoothing, upper_limit_y - label_smoothing)
-
-
         delta = delta.detach()
 
-        # delta_y=delta_y.detach()
         output = model(X + delta[:X.size(0)])
 
-        # print(label_smoothing[0])
-        # print(adv_label[0])
-        # adv_label = F.normalize((label_smoothing + delta_y), p=1, dim=-1)
         loss_fn = torch.nn.MSELoss(reduction='mean')
         if args.loss == 'CE':
-            loss = LabelSmoothLoss(output, (label_smoothing).float())+args.lamb*loss_fn(output.float(), ori_output.float())
+            # default : Label Smoothing Loss -> Change to CE Loss
+            loss = F.cross_entropy(output, y) + args.lamb*loss_fn(output.float(), ori_output.float())
+            # loss = LabelSmoothLoss(output, (label_smoothing).float())+args.lamb*loss_fn(output.float(), ori_output.float())
         elif args.loss == 'QUB':
-            # TODO: check loss calculation
             clean_outputs = model(X)
             softmax = F.softmax(clean_outputs, dim=1)
             y_onehot = F.one_hot(y, num_classes = softmax.shape[1])
@@ -274,7 +267,9 @@ for epoch in range(args.epoch):
             upper_loss = loss + torch.sum((adv_outputs-clean_outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
             loss = upper_loss.mean()
 
-            loss += args.lamb * loss_fn(output.float(), ori_output.float())
+            if not args.wo_regularizer:
+                loss += args.lamb * loss_fn(output.float(), ori_output.float())
+
         optimizer.zero_grad()
         # with amp.scale_loss(loss, optimizer) as scaled_loss:
         loss.backward()
@@ -283,6 +278,9 @@ for epoch in range(args.epoch):
         train_loss += loss.item() * y.size(0)
         correct += (output.max(1)[1] == y).sum().item()
         total += y.size(0)
+
+        if args.log_upper:
+            real_adv_loss += F.cross_entropy(adv_outputs, targets).item()
 
         scheduler.step()
 
@@ -293,6 +291,9 @@ for epoch in range(args.epoch):
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
+    if args.log_upper:
+        upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
+        real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
 
     # print(f'Epoch {epoch}: acc {100.*correct/total} \t loss {round(train_loss/total, 4)}')
 
