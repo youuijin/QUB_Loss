@@ -9,3 +9,5 @@ cifar10_final.csv
 cifar10.csv
 csvs/
 *.yaml
+env_models/
+upper_logs/
