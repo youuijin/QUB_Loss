@@ -165,13 +165,25 @@ def adv_FGSM_loss(grad,
     x_adv_final = x_natural + perturbation_total
     x_adv_final = torch.clamp(x_adv_final, lower_limit, upper_limit)
 
-    output = model(x_adv_final)
+    adv_outputs = model(x_adv_final)
     # default : Label Smoothing Loss -> Change to CE Loss
     # loss_robust = LabelSmoothLoss(output, label_smoothing.float())
-    loss_robust = F.cross_entropy(output, y)
+    if args.loss == 'CE':
+        loss_robust = F.cross_entropy(adv_outputs, y)
+    elif args.loss == 'QUB':
+        outputs = model(x_natural)
+        softmax = F.softmax(outputs, dim=1)
+        y_onehot = F.one_hot(y, num_classes = softmax.shape[1])
+        loss_natural = F.cross_entropy(outputs, y, reduction='none')
+        
+        # adv_outputs = model(advx)
+        adv_norm = torch.norm(adv_outputs-outputs, dim=1)
+
+        upper_loss = loss_natural + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
+        loss_robust = upper_loss.mean()
 
     loss = loss_robust
-    return loss, output
+    return loss, adv_outputs
 
 # Train 1 epoch
 def train(epoch):
