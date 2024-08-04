@@ -33,13 +33,12 @@ class Quadratic_Attack():
 
         outputs = self.model(x_natural)
         adv_outputs = self.model(x_natural + delta)
-        y_onehot = F.one_hot(y, num_classes = softmax.shape[1])
-
         softmax = F.softmax(outputs, dim=1)
+        y_onehot = F.one_hot(y, num_classes = softmax.shape[1])
 
         adv_norm = torch.norm(adv_outputs-outputs, dim=1)
 
-        loss = F.cross_entropy(x_natural, y, reduction='none')
+        loss = F.cross_entropy(outputs, y, reduction='none')
 
         upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
         loss = upper_loss.mean()
