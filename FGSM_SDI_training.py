@@ -32,7 +32,6 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
-parser.add_argument('--log_upper', default=False, action='store_true')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=110)
@@ -47,6 +46,10 @@ parser.add_argument('--factor', default=0.5, type=float)
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
+
+# Logger options
+parser.add_argument('--log_upper', default=False, action='store_true')
+parser.add_argument('--grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
 
@@ -108,8 +111,8 @@ elif args.env == 2:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/110), int(lr_steps*105/110)], gamma=0.1)
     attacker_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer_att, milestones=[int(lr_steps*100/110), int(lr_steps*105/110)], gamma=0.1)
 elif args.env == 3:
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=0.1, step_size_up=lr_steps/2, step_size_down=lr_steps/2)
-    attacker_scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer_att, base_lr=0.0, max_lr=0.1, step_size_up=lr_steps/2, step_size_down=lr_steps/2)
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=args.lr, step_size_up=lr_steps/2, step_size_down=lr_steps/2)
+    attacker_scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer_att, base_lr=0.0, max_lr=args.lr_att, step_size_up=lr_steps/2, step_size_down=lr_steps/2)
 else: 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
     attacker_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer_att,
@@ -191,6 +194,7 @@ def train(epoch):
     correct = 0
     total = 0
     real_adv_loss = 0
+    tot_grad_norm = 0
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         inputs.requires_grad_()
@@ -224,6 +228,9 @@ def train(epoch):
                                     y=targets,
                                     for_attacker=0)
         loss.backward()
+        if args.grad_norm:
+            grad_norm = get_grad_norm(model.parameters(), norm_type=2)
+            tot_grad_norm += grad_norm.item()
         optimizer.step()
         
         train_loss += loss.item()
@@ -242,6 +249,8 @@ def train(epoch):
     if args.log_upper:
         upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
         real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
+    if args.grad_norm:
+        writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
 
 def test(epoch):
     global best_acc

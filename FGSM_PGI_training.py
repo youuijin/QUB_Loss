@@ -29,7 +29,6 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
-parser.add_argument('--log_upper', default=False, action='store_true')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--sche', default='multistep', choices=['multistep', 'cyclic'], help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
@@ -51,6 +50,10 @@ parser.add_argument('--wo_regularizer', action='store_true', default=False, help
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
+
+# Logger options
+parser.add_argument('--log_upper', default=False, action='store_true')
+parser.add_argument('--grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
 
@@ -129,7 +132,7 @@ if args.env == 1:
 elif args.env == 2:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/110), int(lr_steps*105/110)], gamma=0.1)
 elif args.env == 3:
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=0.1,
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=args.lr,
         step_size_up=lr_steps/2, step_size_down=lr_steps/2)
     
 else:
@@ -175,6 +178,7 @@ for epoch in range(args.epoch):
     correct = 0
     total = 0
     real_adv_loss = 0
+    tot_grad_norm = 0
 
     # global cifar_x, cifar_y, all_delta, all_momentum
 
@@ -273,7 +277,9 @@ for epoch in range(args.epoch):
         optimizer.zero_grad()
         # with amp.scale_loss(loss, optimizer) as scaled_loss:
         loss.backward()
-
+        if args.grad_norm:
+            grad_norm = get_grad_norm(model.parameters(), norm_type=2)
+            tot_grad_norm += grad_norm.item()
         optimizer.step()
         train_loss += loss.item() * y.size(0)
         correct += (output.max(1)[1] == y).sum().item()
@@ -294,6 +300,8 @@ for epoch in range(args.epoch):
     if args.log_upper:
         upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
         real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
+    if args.grad_norm:
+        writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
 
     # print(f'Epoch {epoch}: acc {100.*correct/total} \t loss {round(train_loss/total, 4)}')
 
