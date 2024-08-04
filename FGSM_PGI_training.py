@@ -262,9 +262,9 @@ for epoch in range(args.epoch):
             # adv_outputs = model(adv_inputs)
             adv_norm = torch.norm(clean_outputs-output, dim=1)
 
-            loss = F.cross_entropy(X, y, reduction='none')
+            loss = F.cross_entropy(clean_outputs, y, reduction='none')
 
-            upper_loss = loss + torch.sum((adv_outputs-clean_outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
+            upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
             loss = upper_loss.mean()
 
             if not args.wo_regularizer:

@@ -31,12 +31,13 @@ parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--log_upper', default=False, action='store_true')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--sche', default='multistep', choices=['multistep', 'cyclic', 'none'], help='learning rate')
-parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--device', type=int, default=0)
 
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
+parser.add_argument('--alpha', type=float, default=4.)
 parser.add_argument('--init', type=str, choices=['Z', 'U', 'B', 'N'], default='Z')
 
 # test options
