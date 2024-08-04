@@ -60,7 +60,7 @@ log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
-if args.log_upper:
+if args.loss=='QUB' and args.log_upper:
     upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
     real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
 
@@ -166,14 +166,14 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
-        if args.log_upper:
+        if args.loss=='QUB' and args.log_upper:
             real_adv_loss += F.cross_entropy(adv_outputs, targets).item()
 
         scheduler.step()
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
-    if args.log_upper:
+    if args.loss=='QUB' and args.log_upper:
         upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
         real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
     if args.grad_norm:
