@@ -53,6 +53,7 @@ parser.add_argument('--test_eps', type=float, default=8.)
 
 # Logger options
 parser.add_argument('--log_upper', default=False, action='store_true')
+parser.add_argument('--log_K', default=False, action='store_true')
 parser.add_argument('--grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
@@ -134,7 +135,8 @@ elif args.env == 2:
 elif args.env == 3:
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=args.lr,
         step_size_up=lr_steps/2, step_size_down=lr_steps/2)
-    
+elif args.env == 4:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*70/100), int(lr_steps*85/100)], gamma=0.1)
 else:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[lr_steps * 100/110, lr_steps * 105 / 110], gamma=0.1)
 
@@ -179,6 +181,8 @@ for epoch in range(args.epoch):
     total = 0
     real_adv_loss = 0
     tot_grad_norm = 0
+
+    tot_K, max_K = 0, 0
 
     # global cifar_x, cifar_y, all_delta, all_momentum
 
@@ -260,6 +264,11 @@ for epoch in range(args.epoch):
         elif args.loss == 'QUB':
             clean_outputs = model(X)
             softmax = F.softmax(clean_outputs, dim=1)
+            if args.log_K:
+                K_values = calc_K(softmax)
+                tot_K += K_values.sum().item()
+                if K_values.max().item()>max_K:
+                    max_K = K_values.max().item()
             y_onehot = F.one_hot(y, num_classes = softmax.shape[1])
 
             # adv_inputs = attack.perturb(inputs, targets)
@@ -300,6 +309,9 @@ for epoch in range(args.epoch):
     if args.loss=='QUB' and args.log_upper:
         upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
         real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
+    if args.loss=='QUB' and args.log_K:
+        writer.add_scalar('train/Mean_K', round(tot_K/total, 4), epoch)
+        writer.add_scalar('train/Max_K', max_K, epoch)
     if args.grad_norm:
         writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
 

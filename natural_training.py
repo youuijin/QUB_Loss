@@ -83,6 +83,8 @@ elif args.env == 2:
 elif args.env == 3:
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=args.lr,
         step_size_up=lr_steps/2, step_size_down=lr_steps/2)
+elif args.env == 4:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*70/100), int(lr_steps*85/100)], gamma=0.1)
 else:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 

@@ -8,8 +8,8 @@ class Quadratic_Attack():
         self.mean = torch.tensor(mean).to(device).view(1, 3, 1, 1)
         self.std = torch.tensor(std).to(device).view(1, 3, 1, 1)
 
-        self.eps = eps/255./self.std
-        self.alpha = alpha/255./self.std
+        self.eps = eps/255.
+        self.alpha = alpha/255.
         self.upper_limit = ((1 - self.mean) / self.std)
         self.lower_limit = ((0 - self.mean) / self.std)
 
@@ -44,6 +44,8 @@ class Quadratic_Attack():
         loss = upper_loss.mean()
 
         loss.backward()
+
+        print('make ', loss.item())
 
         grad = delta.grad.detach()
         delta.data = torch.clamp(delta + self.eps*torch.sign(grad), -self.eps, self.eps)

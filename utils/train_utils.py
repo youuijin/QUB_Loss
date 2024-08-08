@@ -101,3 +101,25 @@ def get_grad_norm(parameters, norm_type=2):
         print(e)
 
     return total_norm
+
+def calc_K(softmax_vector):
+    # A : [bs, 10] (softmax)
+    batch_size, n = softmax_vector.size()
+    H = torch.zeros(batch_size, n, n, device=softmax_vector.device)
+    
+    # Compute the diagonal elements
+    diag_elements = softmax_vector * (1 - softmax_vector)
+    diag_indices = torch.arange(n, device=softmax_vector.device)
+    H[:, diag_indices, diag_indices] = diag_elements
+    
+    # Compute the off-diagonal elements
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                H[:, i, j] = -softmax_vector[:, i] * softmax_vector[:, j]
+
+    # print(H.shape)
+
+    K_values = torch.linalg.matrix_norm(H, ord=2, dim=(-2, -1), keepdim=False)
+    # print(K_values.shape)
+    return K_values

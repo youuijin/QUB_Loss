@@ -98,6 +98,48 @@ class FGSM_RS_Attack():
         self.model.train()
 
         return adv_x
+    
+class Custom_FGSM_RS_Attack():
+    def __init__(self, model, eps=8.0, a1=4.0, a2=4.0, mean=(0, 0, 0), std=(1, 1, 1), device=None):
+        self.model = model  
+        self.device = device
+        self.mean = torch.tensor(mean).to(device).view(1, 3, 1, 1)
+        self.std = torch.tensor(std).to(device).view(1, 3, 1, 1)
+
+        self.eps = eps/255./self.std
+        self.a1 = a1/255./self.std
+        self.a2 = a2/255./self.std
+        self.upper_limit = ((1 - self.mean) / self.std)
+        self.lower_limit = ((0 - self.mean) / self.std)
+
+    def perturb(self, x_natural, y):
+        self.model.eval()
+        # # standarization input
+
+        delta = torch.zeros_like(x_natural).to(self.device)
+        # delta = delta.uniform_(-self.a1, self.a1)
+        for i, e in enumerate(self.a1.squeeze()):
+            delta[:, i, :, :].uniform_(-e, e)
+
+        delta.data = torch.clamp(delta, self.lower_limit - x_natural, self.upper_limit - x_natural)
+
+        delta.requires_grad_()
+
+        output = self.model(x_natural + delta)
+        loss = F.cross_entropy(output, y)
+        loss.backward()
+
+        grad = delta.grad.detach()
+        delta.data = torch.clamp(delta + self.a2*torch.sign(grad), -self.eps, self.eps)
+
+        delta = torch.clamp(delta, self.lower_limit - x_natural, self.upper_limit - x_natural)
+        delta = delta.detach()
+
+        adv_x = x_natural + delta
+
+        self.model.train()
+
+        return adv_x
 
 
 class FGSM_CKPT_Attack():

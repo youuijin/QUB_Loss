@@ -58,7 +58,7 @@ else:
     model_paths = []
     
     for exist_model_path in exist_model_paths:
-        if not check_is_tested(exist_model_path):
+        if not check_is_tested(exist_model_path) and "eps8.0" in exist_model_path:
             model_paths.append(exist_model_path)
 
 norm_mean, norm_std = (0, 0, 0), (1, 1, 1)
@@ -79,6 +79,9 @@ model.eval()
 
 # Test
 for model_path in model_paths:
+    print(model_path)
+    if model_path[0]!='r':
+        continue
     model.load_state_dict(torch.load(f'{args.saved_dir}/{model_path}', map_location=device))
     # attack.set_normalization_used(mean=list(preprocessing['mean']), std=list(preprocessing['std']))
     attacks = [
@@ -87,9 +90,10 @@ for model_path in model_paths:
         torchattacks.MultiAttack([torchattacks.PGD(model, eps=args.eps/255, alpha=2/255, steps=50, random_start=True)]*10), # PGD50-10
         torchattacks.AutoAttack(model, norm='Linf', eps=args.eps/255, version='standard', n_classes=n_way, seed=args.random_seed, verbose=False) # Auto Attack
     ]
+    attack_names = ['PGD10', 'PGD20', 'PGD-50-10', 'AA']
     attack_success = np.zeros((len(attacks), 2))
     for i, attack in enumerate(attacks):
-        print(f"Attack Method: {attack}")
+        print(f"Attack Method: {attack_names[i]}")
         natural_acc = []
         robust_acc = []
         for images, labels in test_loader:

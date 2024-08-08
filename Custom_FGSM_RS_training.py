@@ -7,17 +7,19 @@ import csv
 
 import argparse
 from datetime import datetime, timedelta
+import time
 
 from utils.train_utils import *
 from attack.pgd_attack import PGDAttack
-from attack.quadratic_attack import Quadratic_Attack
+from attack.fgsm_attack import Custom_FGSM_RS_Attack
 
 from torch.utils.tensorboard import SummaryWriter
 
-parser = argparse.ArgumentParser(description='PyTorch CIFAR10 QUB Training')
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 FGSM-RS Training')
 
 # env options
 parser.add_argument('--env', type=int, default=0)
+
 
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
@@ -29,15 +31,15 @@ parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'
 # train options
 parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
-parser.add_argument('--sche', default='multistep', choices=['multistep', 'cyclic', 'none'], help='learning rate')
+parser.add_argument('--sche', default='cyclic', choices=['multistep', 'cyclic', 'none'], help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
-parser.add_argument('--epoch', type=int, default=100)
+parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--device', type=int, default=0)
 
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
-parser.add_argument('--alpha', type=float, default=4.)
-parser.add_argument('--init', type=str, choices=['Z', 'U', 'B', 'N'], default='Z')
+parser.add_argument('--a1', type=float, default=4.)
+parser.add_argument('--a2', type=float, default=4.)
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
@@ -52,16 +54,17 @@ device = f'cuda:{args.device}'
 best_acc, best_adv_acc = 0, 0  # best test accuracy
 
 set_seed()
-method = 'QUB_AT'
+method = 'Custom_FGSM_RS'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-# log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_epoch{args.epoch}_{args.normalize}_{args.sche}_0.01_{cur}'
-log_name = f'{args.loss}_{method}_{args.init}(eps{args.eps})_lr{args.lr}_{cur}'
+# log_name = f'{args.loss}_{method}(eps{args.eps}_{args.alpha})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps}_{args.a1}_{args.a2})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 if args.loss=='QUB' and args.log_upper:
     upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
     real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
+
 
 # Data
 print('==> Preparing data..')
@@ -83,6 +86,14 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Optimizer
+# optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+# lr_steps = len(train_loader) * args.epoch
+# if args.sche == 'cyclic':
+#     lr_min = 0.0
+#     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
+#         step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
+# elif args.sche == 'multistep':
+#     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 lr_steps = args.epoch * len(train_loader)
 if args.env == 1:
@@ -94,8 +105,13 @@ elif args.env == 3:
         step_size_up=lr_steps/2, step_size_down=lr_steps/2)
 elif args.env == 4:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*70/100), int(lr_steps*85/100)], gamma=0.1)
-else: 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
+else:
+    if args.sche == 'cyclic':
+        lr_min = 0.0
+        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
+            step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
+    elif args.sche == 'multistep':
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 
 def _label_smoothing(label, factor):
     one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
@@ -108,7 +124,7 @@ def LabelSmoothLoss(input, target):
     return loss
 
 # Train Attack & Test Attack
-attack = Quadratic_Attack(model, eps=args.eps, alpha=args.alpha, init=args.init, mean=norm_mean, std=norm_std, device=device)
+attack = Custom_FGSM_RS_Attack(model, eps=args.eps, a1=args.a1, a2=args.a2, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
@@ -120,7 +136,7 @@ def train(epoch):
     total = 0
     real_adv_loss = 0
     tot_grad_norm = 0
-
+    tot_K, max_K = 0, 0
     for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -131,6 +147,11 @@ def train(epoch):
         elif args.loss == 'QUB':
             outputs = model(inputs)
             softmax = F.softmax(outputs, dim=1)
+            if args.log_K:
+                K_values = calc_K(softmax)
+                tot_K += K_values.sum()
+                if K_values.max().item()>max_K:
+                    max_K = K_values.max().item()
             y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
 
             adv_inputs = attack.perturb(inputs, targets)
@@ -142,13 +163,12 @@ def train(epoch):
             upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
             loss = upper_loss.mean()
 
+        optimizer.zero_grad()
         loss.backward()
         if args.grad_norm:
             grad_norm = get_grad_norm(model.parameters(), norm_type=2)
             tot_grad_norm += grad_norm.item()
         optimizer.step()
-
-        print('optim', loss.item())
 
         train_loss += loss.item()
         _, predicted = outputs.max(1)
@@ -156,15 +176,18 @@ def train(epoch):
         correct += predicted.eq(targets).sum().item()
 
         if args.loss=='QUB' and args.log_upper:
-            real_adv_loss += F.cross_entropy(outputs, targets).item()
+            real_adv_loss += F.cross_entropy(adv_outputs, targets).item()
 
         scheduler.step()
-    
+
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
     if args.loss=='QUB' and args.log_upper:
         upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
         real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
+    if args.loss=='QUB' and args.log_K:
+        writer.add_scalar('train/Mean_K', round(tot_K/total, 4), epoch)
+        writer.add_scalar('train/Max_K', max_K, epoch)
     if args.grad_norm:
         writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))

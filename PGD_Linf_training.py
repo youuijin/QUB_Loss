@@ -2,6 +2,7 @@
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 import csv
 
@@ -25,11 +26,13 @@ parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar
 parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet'], default='none')
 
 # train options
-parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
+parser.add_argument('--loss', choices=['CE', 'QUB', 'LS', 'QLS'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--device', type=int, default=0)
+
+parser.add_argument('--factor', type=float, default=0.6, help='Factor for Label smoothing loss (LS, QLS)')
 
 # attack options
 parser.add_argument('--num_step', type=int, default=10)
@@ -43,6 +46,7 @@ parser.add_argument('--test_eps', type=float, default=8.)
 
 # Logger options
 parser.add_argument('--log_upper', default=False, action='store_true')
+parser.add_argument('--log_K', default=False, action='store_true')
 parser.add_argument('--grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
@@ -55,6 +59,8 @@ method = 'PGD_AT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{method}(eps{args.eps}_iter{args.num_step})_epoch{args.epoch}_{args.normalize}_{cur}'
 log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+if args.loss in ['LS', 'QLS']:
+    log_name = f'{args.loss}({args.factor})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
@@ -83,6 +89,10 @@ model = model.to(device)
 # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0002)
 # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+
+# optimizer = optim.Adam(model.parameters(), lr=args.lr)
+# optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+
 lr_steps = args.epoch * len(train_loader)
 if args.env == 1:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/200), int(lr_steps*150/200)], gamma=0.1)
@@ -91,6 +101,8 @@ elif args.env == 2:
 elif args.env == 3:
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=args.lr,
         step_size_up=lr_steps/2, step_size_down=lr_steps/2)
+elif args.env == 4:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*70/100), int(lr_steps*85/100)], gamma=0.1)
 else: 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
 
@@ -117,6 +129,7 @@ def train(epoch):
     total = 0
     real_adv_loss = 0 
     tot_grad_norm = 0
+    tot_K, max_K = 0, 0
     for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -127,6 +140,11 @@ def train(epoch):
         elif args.loss == 'QUB':
             outputs = model(inputs)
             softmax = F.softmax(outputs, dim=1)
+            if args.log_K:
+                K_values = calc_K(softmax)
+                tot_K += K_values.sum().item()
+                if K_values.max().item()>max_K:
+                    max_K = K_values.max().item()
             y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
 
             adv_inputs = attack.perturb(inputs, targets)
@@ -136,6 +154,25 @@ def train(epoch):
             loss = F.cross_entropy(outputs, targets, reduction='none')
 
             upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
+            loss = upper_loss.mean()
+        elif args.loss == 'LS':
+            inputs = attack.perturb(inputs, targets)
+            outputs = model(inputs)
+            label_smoothing = Variable(torch.tensor(_label_smoothing(targets, args.factor)).to(device))
+            loss = LabelSmoothLoss(outputs, label_smoothing.float())
+        elif args.loss == 'QLS':
+            outputs = model(inputs)
+            softmax = F.softmax(outputs, dim=1)
+            label_smoothing = Variable(torch.tensor(_label_smoothing(targets, args.factor)).to(device))
+            # y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
+
+            adv_inputs = attack.perturb(inputs, targets)
+            adv_outputs = model(adv_inputs)
+            adv_norm = torch.norm(adv_outputs-outputs, dim=1)
+
+            loss = LabelSmoothLoss(outputs, label_smoothing.float())
+
+            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-label_smoothing), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
             loss = upper_loss.mean()
 
         loss.backward()
@@ -159,6 +196,9 @@ def train(epoch):
     if args.loss=='QUB' and args.log_upper:
         upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
         real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
+    if args.loss=='QUB' and args.log_K:
+        writer.add_scalar('train/Mean_K', round(tot_K/total, 4), epoch)
+        writer.add_scalar('train/Max_K', max_K, epoch)
     if args.grad_norm:
         writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
