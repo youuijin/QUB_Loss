@@ -295,7 +295,7 @@ for epoch in range(args.epoch):
         total += y.size(0)
 
         if args.loss=='QUB' and args.log_upper:
-            real_adv_loss += F.cross_entropy(adv_outputs, targets).item()
+            real_adv_loss += F.cross_entropy(output, y).item()
 
         scheduler.step()
 

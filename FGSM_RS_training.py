@@ -104,7 +104,8 @@ elif args.env == 3:
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=args.lr,
         step_size_up=lr_steps/2, step_size_down=lr_steps/2)
 elif args.env == 4:
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*30/60), int(lr_steps*50/60)], gamma=0.1)
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*30/60), int(lr_steps*50/60)], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*70/100), int(lr_steps*85/100)], gamma=0.1)
 else:
     if args.sche == 'cyclic':
         lr_min = 0.0
@@ -126,6 +127,8 @@ def LabelSmoothLoss(input, target):
 # Train Attack & Test Attack
 attack = FGSM_RS_Attack(model, eps=args.eps, alpha=args.alpha, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+
+tot_K, max_K = 0, 0
 
 # Train 1 epoch
 def train(epoch):

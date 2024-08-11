@@ -122,4 +122,4 @@ def calc_K(softmax_vector):
 
     K_values = torch.linalg.matrix_norm(H, ord=2, dim=(-2, -1), keepdim=False)
     # print(K_values.shape)
-    return K_values
+    return K_values.detach()

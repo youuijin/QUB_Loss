@@ -46,6 +46,7 @@ parser.add_argument('--test_eps', type=float, default=8.)
 
 # Logger options
 parser.add_argument('--log_upper', default=False, action='store_true')
+parser.add_argument('--log_K', default=False, action='store_true')
 parser.add_argument('--grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
@@ -149,7 +150,7 @@ def train(epoch):
             softmax = F.softmax(outputs, dim=1)
             if args.log_K:
                 K_values = calc_K(softmax)
-                tot_K += K_values.sum()
+                tot_K += K_values.sum().item()
                 if K_values.max().item()>max_K:
                     max_K = K_values.max().item()
             y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])

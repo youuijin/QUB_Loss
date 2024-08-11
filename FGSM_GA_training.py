@@ -160,7 +160,6 @@ def train(epoch):
                 if K_values.max().item()>max_K:
                     max_K = K_values.max().item()
             y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
-
             adv_inputs = attack.perturb(inputs, targets)
             adv_outputs = model(adv_inputs)
             adv_norm = torch.norm(adv_outputs-outputs, dim=1)
