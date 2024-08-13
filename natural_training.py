@@ -93,8 +93,8 @@ def criterion(outputs, targets):
     return F.cross_entropy(outputs, targets)
 
 def _label_smoothing(label, factor):
-    one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
-    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(10 - 1))
+    one_hot = np.eye(n_way)[label.to(device).data.cpu().numpy()]
+    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(n_way - 1))
     return result
 
 def LabelSmoothLoss(input, target):
@@ -164,7 +164,7 @@ def test(epoch):
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:
-        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
         best_adv_acc = 100.*adv_correct/total
         best_acc = acc
         best_epoch = epoch
@@ -184,7 +184,7 @@ tot_time = datetime.now() - train_start
 print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
 if args.env>0:
-    file_name = f'./csvs/env{args.env}/{args.model}.csv'
+    file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
 else:
     file_name = f'./{args.dataset}.csv'
 with open(file_name, 'a', encoding='utf-8', newline='') as f:

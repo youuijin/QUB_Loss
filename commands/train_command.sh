@@ -10,13 +10,17 @@ test_eps=8.
 # env=1
 # epoch=200
 
-## env2
-env=2
-epoch=110
+# ## env2
+# env=2
+# epoch=110
 
 # ## env3
 # env=3
 # epoch=30
+
+## env4
+env=4
+epoch=100
 
 ARGS="--model=$model --dataset=$dataset --env=$env --epoch=$epoch --eps=$eps --test_eps=$test_eps --lr=$lr --device=$device"
 
@@ -38,12 +42,3 @@ python GAT_training.py $ARGS --loss=CE
 python GAT_training.py $ARGS --loss=QUB
 python PGD_Linf_training.py $ARGS --loss=CE
 python PGD_Linf_training.py $ARGS --loss=QUB
-
-python QUB_training.py $ARGS --loss=CE --init=Z
-python QUB_training.py $ARGS --loss=QUB --init=Z
-python QUB_training.py $ARGS --loss=CE --init=U
-python QUB_training.py $ARGS --loss=QUB --init=U
-python QUB_training.py $ARGS --loss=CE --init=B
-python QUB_training.py $ARGS --loss=QUB --init=B
-python QUB_training.py $ARGS --loss=CE --init=N
-python QUB_training.py $ARGS --loss=QUB --init=N

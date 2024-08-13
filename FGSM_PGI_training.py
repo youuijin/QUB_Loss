@@ -47,6 +47,7 @@ parser.add_argument('--factor', default=0.6, type=float, help='Label Smoothing')
 
 # QUB options
 parser.add_argument('--wo_regularizer', action='store_true', default=False, help='if true, dont use MSE Loss')
+parser.add_argument('--K', type=float, default=0.5)
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
@@ -67,6 +68,8 @@ method = 'FGSM_PGI'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_mom{args.momentum_decay}_lamb{args.lamb}_{args.delta_init})_epoch{args.epoch}_{args.normalize}_{args.sche}_{args.factor}_{cur}'
 log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+if args.loss == 'QUB':
+    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
@@ -75,9 +78,9 @@ if args.loss=='QUB' and args.log_upper:
     real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
 
 def _label_smoothing(label, factor):
-    one_hot = np.eye(10)[label.to(device).data.cpu().numpy()]
+    one_hot = np.eye(n_way)[label.to(device).data.cpu().numpy()]
 
-    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(10 - 1))
+    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(n_way - 1))
 
     return result
 
@@ -277,7 +280,7 @@ for epoch in range(args.epoch):
 
             loss = F.cross_entropy(clean_outputs, y, reduction='none')
 
-            upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + 0.5/2.0*torch.pow(adv_norm, 2)
+            upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
             loss = upper_loss.mean()
 
             if not args.wo_regularizer:
@@ -344,7 +347,7 @@ for epoch in range(args.epoch):
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
@@ -355,7 +358,7 @@ tot_time = datetime.now() - train_start
 print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
 if args.env>0:
-    file_name = f'./csvs/env{args.env}/{args.model}.csv'
+    file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
 else:
     file_name = f'./{args.dataset}.csv'
 with open(file_name, 'a', encoding='utf-8', newline='') as f:
