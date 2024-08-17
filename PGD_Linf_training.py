@@ -156,6 +156,9 @@ def train(epoch):
             loss = F.cross_entropy(outputs, targets, reduction='none')
 
             upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
+            if args.K<0:
+                upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
+
             loss = upper_loss.mean()
         elif args.loss == 'LS':
             inputs = attack.perturb(inputs, targets)

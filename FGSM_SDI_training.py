@@ -198,6 +198,9 @@ def adv_FGSM_loss(grad,
         adv_norm = torch.norm(adv_outputs-outputs, dim=1)
 
         upper_loss = loss_natural + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
+        if args.K<0:
+                upper_loss = loss_natural + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
+
         loss_robust = upper_loss.mean()
 
     loss = loss_robust
