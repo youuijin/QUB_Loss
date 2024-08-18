@@ -2,18 +2,19 @@
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 import csv
 
 import argparse
 from datetime import datetime, timedelta
+
 from utils.train_utils import *
 from attack.pgd_attack import PGDAttack
+from attack.nuclear_attack import Nu_Attack
 
 from torch.utils.tensorboard import SummaryWriter
 
-parser = argparse.ArgumentParser(description='PyTorch CIFAR10 PGD_Linf Training')
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 NuAT Training')
 
 # env options
 parser.add_argument('--env', type=int, default=0)
@@ -23,24 +24,21 @@ parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', '
 
 # dataset options
 parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar10')
-parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet'], default='none')
+parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'], default='none')
 
 # train options
-parser.add_argument('--loss', choices=['CE', 'QUB', 'LS', 'QLS'], default='CE')
+parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
-parser.add_argument('--batch_size', type=int, default=128)
-parser.add_argument('--epoch', type=int, default=200)
+parser.add_argument('--sche', default='multistep', choices=['multistep', 'cyclic', 'none'], help='learning rate')
+parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--device', type=int, default=0)
 
-parser.add_argument('--factor', type=float, default=0.6, help='Factor for Label smoothing loss (LS, QLS)')
-
 # attack options
-parser.add_argument('--num_step', type=int, default=10)
 parser.add_argument('--eps', type=float, default=8.)
-parser.add_argument('--alpha', type=float, default=2.)
+parser.add_argument('--alpha', type=float, default=4.)
+parser.add_argument('--nuc_reg', type=float, default=4.)
 parser.add_argument('--K', type=float, default=0.5)
-
-parser.add_argument('--config', type=str, default='none')
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
@@ -56,12 +54,10 @@ device = f'cuda:{args.device}'
 best_acc, best_adv_acc = 0, 0  # best test accuracy
 
 set_seed()
-method = 'PGD_AT'
+method = 'NuAT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-# log_name = f'{method}(eps{args.eps}_iter{args.num_step})_epoch{args.epoch}_{args.normalize}_{cur}'
 log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    # log_name = f'{args.loss}({args.factor})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
     log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
@@ -75,6 +71,8 @@ print('==> Preparing data..')
 
 if args.normalize == "imagenet":
     norm_mean, norm_std = (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+elif args.normalize == "cifar":
+    norm_mean, norm_std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
 elif args.normalize == "twice":
     norm_mean, norm_std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
 else: 
@@ -88,10 +86,7 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Optimizer
-# optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0002)
-# scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-
 lr_steps = args.epoch * len(train_loader)
 if args.env == 1:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/200), int(lr_steps*150/200)], gamma=0.1)
@@ -103,7 +98,8 @@ elif args.env == 3:
 elif args.env == 4:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*70/100), int(lr_steps*85/100)], gamma=0.1)
 else: 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=args.lr,
+            step_size_up=lr_steps*40/args.epoch, step_size_down=lr_steps*(args.epoch-10-40)/args.epoch)
 
 def _label_smoothing(label, factor):
     one_hot = np.eye(n_way)[label.to(device).data.cpu().numpy()]
@@ -116,7 +112,7 @@ def LabelSmoothLoss(input, target):
     return loss
 
 # Train Attack & Test Attack
-attack = PGDAttack(model, eps=args.eps, alpha=args.alpha, iter=args.num_step, mean=norm_mean, std=norm_std, device=device)
+attack = Nu_Attack(model, eps=args.eps, alpha=args.alpha, nuc_reg=args.nuc_reg, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
@@ -126,16 +122,29 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    real_adv_loss = 0 
+    real_adv_loss = 0
     tot_grad_norm = 0
     tot_K, max_K = 0, 0
-    for inputs, targets in train_loader:
+
+    if epoch == int(args.epoch*0.85):
+        args.lamb *= args.reg_mul
+
+    for i, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        if args.loss == 'CE':
-            inputs = attack.perturb(inputs, targets)
+
+        if args.loss == 'CE': # Default : actually not just CE, GAT
+            # default setting
             outputs = model(inputs)
             loss = F.cross_entropy(outputs, targets)
+
+            adv_inputs = attack.perturb(inputs, targets, alt=i%2)
+            adv_outputs = model(adv_inputs)
+
+            reg_loss = torch.norm(outputs - adv_outputs, 'nuc')/inputs.shape[0]
+
+            loss = loss + args.nuc_reg * reg_loss
+
         elif args.loss == 'QUB':
             outputs = model(inputs)
             softmax = F.softmax(outputs, dim=1)
@@ -145,38 +154,19 @@ def train(epoch):
                 if K_values.max().item()>max_K:
                     max_K = K_values.max().item()
             y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
-
-            adv_inputs = attack.perturb(inputs, targets)
+            loss_natural = F.cross_entropy(outputs, targets, reduction='none')
+            
+            adv_inputs = attack.perturb(inputs, targets, alt=i%2)
             adv_outputs = model(adv_inputs)
             adv_norm = torch.norm(adv_outputs-outputs, dim=1)
 
-            loss = F.cross_entropy(outputs, targets, reduction='none')
-
-            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
+            upper_loss = loss_natural + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
             if args.K<0:
-                upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
+                upper_loss = loss_natural + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
 
             loss = upper_loss.mean()
-        elif args.loss == 'LS':
-            inputs = attack.perturb(inputs, targets)
-            outputs = model(inputs)
-            label_smoothing = Variable(torch.tensor(_label_smoothing(targets, args.factor)).to(device))
-            loss = LabelSmoothLoss(outputs, label_smoothing.float())
-        elif args.loss == 'QLS':
-            outputs = model(inputs)
-            softmax = F.softmax(outputs, dim=1)
-            label_smoothing = Variable(torch.tensor(_label_smoothing(targets, args.factor)).to(device))
-            # y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
 
-            adv_inputs = attack.perturb(inputs, targets)
-            adv_outputs = model(adv_inputs)
-            adv_norm = torch.norm(adv_outputs-outputs, dim=1)
-
-            loss = LabelSmoothLoss(outputs, label_smoothing.float())
-
-            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-label_smoothing), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
-            loss = upper_loss.mean()
-
+        optimizer.zero_grad()
         loss.backward()
         if args.grad_norm:
             grad_norm = get_grad_norm(model.parameters(), norm_type=2)

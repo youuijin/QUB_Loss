@@ -60,7 +60,7 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_{args.lr_min}_epoch{args.epoch}_{args.sche}_{cur}'
 log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')

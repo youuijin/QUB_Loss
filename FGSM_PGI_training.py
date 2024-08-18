@@ -70,6 +70,8 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
     log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+    if args.wo_regularizer:
+        log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_wo)_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')

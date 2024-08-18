@@ -15,10 +15,11 @@ from attack.trades_attack import TRADESAttack
 
 from torch.utils.tensorboard import SummaryWriter
 
-import torch.autograd as autograd
-autograd.set_detect_anomaly(True)
-
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 TRADES Training')
+
+# env options
+parser.add_argument('--env', type=int, default=0)
+
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
@@ -27,6 +28,7 @@ parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar
 parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet'], default='none')
 
 # train options
+parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--sche', default='multistep', type=str, help='learning rate scheduler')
 parser.add_argument('--batch_size', type=int, default=128)
@@ -38,9 +40,15 @@ parser.add_argument('--beta', type=float, default=6.)
 parser.add_argument('--num_step', type=int, default=10)
 parser.add_argument('--eps', type=float, default=8.)
 parser.add_argument('--alpha', type=float, default=2.) # step size
+parser.add_argument('--K', type=float, default=0.5)
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
+
+# Logger options
+parser.add_argument('--log_upper', default=False, action='store_true')
+parser.add_argument('--log_K', default=False, action='store_true')
+parser.add_argument('--grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
 
@@ -50,10 +58,16 @@ best_acc, best_adv_acc = 0, 0  # best test accuracy
 set_seed()
 method = 'TRADES'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{method}(eps{args.eps}_iter{args.num_step})_beta{args.beta}_epoch{args.epoch}_{args.normalize}_{cur}'
+# log_name = f'{method}(eps{args.eps}_iter{args.num_step})_beta{args.beta}_epoch{args.epoch}_{args.normalize}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+if args.loss == 'QUB':
+    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/{log_name}')
+writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+if args.loss=='QUB' and args.log_upper:
+    upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
+    real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
 
 # Data
 print('==> Preparing data..')
@@ -73,11 +87,21 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Optimizer
-optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0002)
-if args.sche == 'multistep':
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
-elif args.sche == 'multigit':
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.73), int(args.epoch*0.88), int(args.epoch*0.98)], gamma=0.1)
+# optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0002)
+optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+
+lr_steps = args.epoch * len(train_loader)
+if args.env == 1:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/200), int(lr_steps*150/200)], gamma=0.1)
+elif args.env == 2:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*100/110), int(lr_steps*105/110)], gamma=0.1)
+elif args.env == 3:
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0, max_lr=args.lr,
+        step_size_up=lr_steps/2, step_size_down=lr_steps/2)
+elif args.env == 4:
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*70/100), int(lr_steps*85/100)], gamma=0.1)
+else: 
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.73), int(lr_steps*0.88), int(lr_steps*0.98)], gamma=0.1)
 
 # Loss function
 criterion_kl = nn.KLDivLoss(size_average=False)
@@ -93,19 +117,46 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
+    real_adv_loss = 0 
+    tot_grad_norm = 0
+    tot_K, max_K = 0, 0
     for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
+        if args.loss == 'CE':
+            adv_inputs = attack.perturb(inputs, targets)
+            optimizer.zero_grad()
 
-        adv_inputs = attack.perturb(inputs, targets)
-        optimizer.zero_grad()
+            outputs = model(inputs)
+            loss_natural = F.cross_entropy(outputs, targets)
+            loss_robust = (1.0 / inputs.shape[0]) * criterion_kl(F.log_softmax(model(adv_inputs), dim=1), F.softmax(model(inputs), dim=1)+1e-10)
+            loss = loss_natural + args.beta * loss_robust
+        elif args.loss == 'QUB':
+            outputs = model(inputs)
+            softmax = F.softmax(outputs, dim=1)
+            if args.log_K:
+                K_values = calc_K(softmax)
+                tot_K += K_values.sum().item()
+                if K_values.max().item()>max_K:
+                    max_K = K_values.max().item()
+            y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
 
-        outputs = model(inputs)
-        loss_natural = F.cross_entropy(outputs, targets)
-        loss_robust = (1.0 / inputs.shape[0]) * criterion_kl(F.log_softmax(model(adv_inputs), dim=1), F.softmax(model(inputs), dim=1)+1e-10)
-        loss = loss_natural + args.beta * loss_robust
+            adv_inputs = attack.perturb(inputs, targets)
+            adv_outputs = model(adv_inputs)
+            adv_norm = torch.norm(adv_outputs-outputs, dim=1)
+
+            loss = F.cross_entropy(outputs, targets, reduction='none')
+
+            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
+            if args.K<0:
+                upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
+
+            loss = upper_loss.mean()
 
         loss.backward()
+        if args.grad_norm:
+            grad_norm = get_grad_norm(model.parameters(), norm_type=2)
+            tot_grad_norm += grad_norm.item()
         optimizer.step()
 
         train_loss += loss.item()
@@ -113,9 +164,23 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
+        if args.loss=='QUB' and args.log_upper:
+            real_adv_loss += F.cross_entropy(outputs, targets).item()
+
+        scheduler.step()
+
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
-    print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
+    # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
+
+    if args.loss=='QUB' and args.log_upper:
+        upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
+        real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
+    if args.loss=='QUB' and args.log_K:
+        writer.add_scalar('train/Mean_K', round(tot_K/total, 4), epoch)
+        writer.add_scalar('train/Max_K', max_K, epoch)
+    if args.grad_norm:
+        writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
 
 def test(epoch):
     global best_acc
@@ -144,7 +209,7 @@ def test(epoch):
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./saved_models/{args.model}_{log_name}.pt')
+        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
@@ -158,15 +223,16 @@ for epoch in range(args.epoch):
     start = datetime.now()
     train(epoch)
     train_time += datetime.now() - start
-    if epoch%5 == 0:
-        test(epoch)
-    if args.sche == 'multistep' or args.sche == 'multigit':
-        scheduler.step()
+    test(epoch)
 tot_time = datetime.now() - train_start
 
 
 print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
-with open(f'./{args.dataset}.csv', 'a', encoding='utf-8', newline='') as f:
+if args.env>0:
+    file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
+else:
+    file_name = f'./{args.dataset}.csv'
+with open(file_name, 'a', encoding='utf-8', newline='') as f:
     wr = csv.writer(f)
     wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])
