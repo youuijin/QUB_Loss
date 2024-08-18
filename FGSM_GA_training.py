@@ -177,7 +177,6 @@ def train(epoch):
 
         grad1 = attack.get_grad(inputs, targets, uniform=False)
         grad2 = attack.get_grad(inputs, targets, uniform=True)
-
         grad1_norms, grad2_norms = l2_norm_batch(grad1), l2_norm_batch(grad2)
         grad1_normalized = grad1 / grad1_norms[:, None, None, None]
         grad2_normalized = grad2 / grad2_norms[:, None, None, None]

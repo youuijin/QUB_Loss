@@ -143,6 +143,7 @@ def train(epoch):
     real_adv_loss = 0
     tot_grad_norm = 0
     global tot_K, max_K
+    tot_K, max_K = 0, 0
     for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
