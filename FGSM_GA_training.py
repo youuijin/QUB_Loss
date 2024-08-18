@@ -81,6 +81,12 @@ elif args.normalize == "twice":
 else: 
     norm_mean, norm_std = (0, 0, 0), (1, 1, 1)
 
+tensor_mean = torch.tensor(norm_mean).to(device).view(1, 3, 1, 1)
+tensor_std = torch.tensor(norm_std).to(device).view(1, 3, 1, 1)
+
+upper_limit = ((1 - tensor_mean) / tensor_std)
+lower_limit = ((0 - tensor_mean) / tensor_std)
+
 train_loader, test_loader, n_way = set_dataloader(args.dataset, args.batch_size, norm_mean, norm_std)
 
 # Model
@@ -177,15 +183,35 @@ def train(epoch):
 
         grad1 = attack.get_grad(inputs, targets, uniform=False)
         grad2 = attack.get_grad(inputs, targets, uniform=True)
+        x1 = inputs.clone()
+        x1.requires_grad_()
+
+        output = model(x1)
+        loss = F.cross_entropy(output, targets)
+        loss.backward(retain_graph=True)
+
+        grad1 = x1.grad
+
+        x2 = inputs.clone()
+        delta = torch.zeros_like(x2).to(device)
+        for i, e in enumerate(range(3)):
+            delta[:, i, :, :].uniform_(-e, e)
+        x2 = x2 + delta
+        torch.clamp(x2, lower_limit, upper_limit)
+        x2.requires_grad_()
+
+        output = model(x2)
+        loss = F.cross_entropy(output, targets)
+        loss.backward(retain_graph=True)
+
+        grad2 = x2.grad
+
         grad1_norms, grad2_norms = l2_norm_batch(grad1), l2_norm_batch(grad2)
         grad1_normalized = grad1 / grad1_norms[:, None, None, None]
         grad2_normalized = grad2 / grad2_norms[:, None, None, None]
         cos = torch.sum(grad1_normalized * grad2_normalized, (1, 2, 3))
-
-        # print('CE Loss', loss.item(), '\tCos Loss', (1.0-cos.mean()))
         
         loss += args.lamb * (1.0 - cos.mean())
-        # print('tot:', loss)
 
         optimizer.zero_grad()
         loss.backward()
