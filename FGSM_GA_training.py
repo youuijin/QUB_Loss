@@ -187,8 +187,8 @@ def train(epoch):
         x1.requires_grad_()
 
         output = model(x1)
-        loss = F.cross_entropy(output, targets)
-        loss.backward(retain_graph=True)
+        x1_loss = F.cross_entropy(output, targets)
+        x1_loss.backward(retain_graph=True)
 
         grad1 = x1.grad
 
@@ -201,8 +201,8 @@ def train(epoch):
         x2.requires_grad_()
 
         output = model(x2)
-        loss = F.cross_entropy(output, targets)
-        loss.backward(retain_graph=True)
+        x2_loss = F.cross_entropy(output, targets)
+        x2_loss.backward(retain_graph=True)
 
         grad2 = x2.grad
 

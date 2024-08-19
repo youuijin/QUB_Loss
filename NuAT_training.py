@@ -126,9 +126,6 @@ def train(epoch):
     tot_grad_norm = 0
     tot_K, max_K = 0, 0
 
-    if epoch == int(args.epoch*0.85):
-        args.lamb *= args.reg_mul
-
     for i, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()

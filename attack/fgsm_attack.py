@@ -38,7 +38,7 @@ class FGSM_Attack():
         return adv_x
     
     def get_grad(self, x_natural, y, uniform=False):
-        x = x_natural.detach()
+        x = x_natural.clone()
 
         if uniform:
             delta = torch.zeros_like(x_natural).to(self.device)
@@ -52,9 +52,9 @@ class FGSM_Attack():
         output = self.model(x)
         
         loss = F.cross_entropy(output, y)
-        loss.backward()
+        loss.backward(retain_graph=True)
 
-        grad = x.grad.detach()
+        grad = x.grad
         
         return grad
 
