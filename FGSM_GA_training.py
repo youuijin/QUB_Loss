@@ -60,7 +60,7 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_{args.lr_min}_epoch{args.epoch}_{args.sche}_{cur}'
 log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_{cur}'
+    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
@@ -181,30 +181,21 @@ def train(epoch):
 
             loss = upper_loss.mean()
 
-        grad1 = attack.get_grad(inputs, targets, uniform=False)
-        grad2 = attack.get_grad(inputs, targets, uniform=True)
-        x1 = inputs.clone()
-        x1.requires_grad_()
-
-        output = model(x1)
+        # Grad Align between Original image & random image
+        delta1 = torch.zeros_like(inputs, requires_grad=True).to(device)
+        output = model(inputs + delta1)
         x1_loss = F.cross_entropy(output, targets)
-        x1_loss.backward(retain_graph=True)
+        
+        grad1 = torch.autograd.grad(x1_loss, delta1, create_graph=True)[0]
 
-        grad1 = x1.grad
-
-        x2 = inputs.clone()
-        delta = torch.zeros_like(x2).to(device)
+        delta2 = torch.zeros_like(inputs).to(device)
         for i, e in enumerate(range(3)):
-            delta[:, i, :, :].uniform_(-e, e)
-        x2 = x2 + delta
-        torch.clamp(x2, lower_limit, upper_limit)
-        x2.requires_grad_()
-
-        output = model(x2)
+            delta2[:, i, :, :].uniform_(-e, e)
+        delta2 = torch.clamp(delta2, lower_limit-inputs, upper_limit-inputs)
+        delta2.requires_grad = True
+        output = model(inputs + delta2)
         x2_loss = F.cross_entropy(output, targets)
-        x2_loss.backward(retain_graph=True)
-
-        grad2 = x2.grad
+        grad2 = torch.autograd.grad(x2_loss, delta2, create_graph=True)[0]
 
         grad1_norms, grad2_norms = l2_norm_batch(grad1), l2_norm_batch(grad2)
         grad1_normalized = grad1 / grad1_norms[:, None, None, None]
