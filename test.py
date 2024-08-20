@@ -80,7 +80,7 @@ model.eval()
 # Test
 for model_path in model_paths:
     print(model_path)
-    if model_path[0]!='r':
+    if args.model not in model_path:
         continue
     model.load_state_dict(torch.load(f'{args.saved_dir}/{model_path}', map_location=device))
     # attack.set_normalization_used(mean=list(preprocessing['mean']), std=list(preprocessing['std']))
