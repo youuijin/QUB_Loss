@@ -1,13 +1,14 @@
 *.pyc
 __pycache__/
-TODO/
 logs/
 data/
-saved_models/
 saved_models_final/
 cifar10_final.csv
 cifar10.csv
 csvs/
 *.yaml
+*.csv
 env_models/
 upper_logs/
+utils/singular
+test_model/
