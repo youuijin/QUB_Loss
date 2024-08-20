@@ -37,7 +37,7 @@ parser.add_argument('--device', type=int, default=0)
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
 parser.add_argument('--alpha', type=float, default=4.)
-parser.add_argument('--nuc_reg', type=float, default=4.)
+parser.add_argument('--nuc_max', type=float, default=4.5)
 parser.add_argument('--K', type=float, default=0.5)
 
 # test options
@@ -112,11 +112,14 @@ def LabelSmoothLoss(input, target):
     return loss
 
 # Train Attack & Test Attack
-attack = Nu_Attack(model, eps=args.eps, alpha=args.alpha, nuc_reg=args.nuc_reg, mean=norm_mean, std=norm_std, device=device)
+attack = Nu_Attack(model, eps=args.eps, alpha=args.alpha, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+
+nuc_reg = 0.0
 
 # Train 1 epoch
 def train(epoch):
+    global nuc_reg
     # print('\nEpoch: %d' % epoch)
     model.train()
     train_loss = 0
@@ -135,12 +138,12 @@ def train(epoch):
             outputs = model(inputs)
             loss = F.cross_entropy(outputs, targets)
 
-            adv_inputs = attack.perturb(inputs, targets, alt=i%2)
+            adv_inputs = attack.perturb(inputs, targets, alt=i%2, nuc_reg=nuc_reg)
             adv_outputs = model(adv_inputs)
 
             reg_loss = torch.norm(outputs - adv_outputs, 'nuc')/inputs.shape[0]
 
-            loss = loss + args.nuc_reg * reg_loss
+            loss = loss + nuc_reg * reg_loss
 
         elif args.loss == 'QUB':
             outputs = model(inputs)
@@ -153,7 +156,7 @@ def train(epoch):
             y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
             loss_natural = F.cross_entropy(outputs, targets, reduction='none')
             
-            adv_inputs = attack.perturb(inputs, targets, alt=i%2)
+            adv_inputs = attack.perturb(inputs, targets, alt=i%2, nuc_reg=nuc_reg)
             adv_outputs = model(adv_inputs)
             adv_norm = torch.norm(adv_outputs-outputs, dim=1)
 
@@ -191,6 +194,11 @@ def train(epoch):
     if args.grad_norm:
         writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
+    
+    if epoch < (args.epoch-10):
+        nuc_reg += args.nuc_max/(args.epoch-10)
+
+    # writer.add_scalar('train/nuc_reg', nuc_reg, epoch)
 
 def test(epoch):
     global best_acc
