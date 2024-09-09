@@ -12,3 +12,5 @@ env_models/
 upper_logs/
 utils/singular
 test_model/
+QUB_Logs/
+commands/
