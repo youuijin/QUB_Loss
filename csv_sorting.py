@@ -14,18 +14,14 @@ for d in dir_names:
         # df.to_csv(f'{file_name}.csv', index=False)
         df.to_csv(f'{d}/{f}.csv', index=False)
 
-df = pd.read_csv(f'test.csv')
-# sorted_df = df.sort_values(by=['column1', 'column2'], inplace)
-df.sort_values(by = ['test_eps', 'env', 'log_name'], ascending=[True, True, True], inplace=True)
-# df['model'] = df['model'].str.replace('/', '_')
-# df.sort_index() # 되돌리기
+# test csv
+files_names = ['test', 'test_black', 'test_wrn_34_10', 'test_black_wrn']
 
-df.to_csv(f'test.csv', index=False)
+for f in files_names:
+    df = pd.read_csv(f'{f}.csv')
+    # sorted_df = df.sort_values(by=['column1', 'column2'], inplace)
+    df.sort_values(by = ['test_eps', 'env', 'log_name'], ascending=[True, True, True], inplace=True)
+    # df['model'] = df['model'].str.replace('/', '_')
+    # df.sort_index() # 되돌리기
 
-df = pd.read_csv(f'test_black.csv')
-# sorted_df = df.sort_values(by=['column1', 'column2'], inplace)
-df.sort_values(by = ['test_eps', 'env', 'log_name'], ascending=[True, True, True], inplace=True)
-# df['model'] = df['model'].str.replace('/', '_')
-# df.sort_index() # 되돌리기
-
-df.to_csv(f'test_black.csv', index=False)
+    df.to_csv(f'{f}.csv', index=False)
