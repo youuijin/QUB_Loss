@@ -58,7 +58,7 @@ else:
     model_paths = []
     
     for exist_model_path in exist_model_paths:
-        if not check_is_tested(exist_model_path) and "eps8.0" in exist_model_path:
+        if not check_is_tested(exist_model_path):
             model_paths.append(exist_model_path)
 
 norm_mean, norm_std = (0, 0, 0), (1, 1, 1)
@@ -79,9 +79,12 @@ model.eval()
 
 # Test
 for model_path in model_paths:
-    print(model_path)
     if args.model not in model_path:
         continue
+    if f"eps{args.eps}" not in model_path:
+        if "no_AT" not in model_path:
+            continue
+    print(model_path)
     model.load_state_dict(torch.load(f'{args.saved_dir}/{model_path}', map_location=device))
     # attack.set_normalization_used(mean=list(preprocessing['mean']), std=list(preprocessing['std']))
     attacks = [

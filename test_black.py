@@ -82,6 +82,9 @@ for model_path in model_paths:
     print(model_path)
     if args.model not in model_path:
         continue
+    if f"eps{args.eps}" not in model_path:
+        if "no_AT" not in model_path:
+            continue
     model.load_state_dict(torch.load(f'{args.saved_dir}/{model_path}', map_location=device))
 
     attack_success = np.zeros((5, 2))
