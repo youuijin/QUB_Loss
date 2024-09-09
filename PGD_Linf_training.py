@@ -22,11 +22,11 @@ parser.add_argument('--env', type=int, default=0)
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
 # dataset options
-parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar10')
+parser.add_argument('--dataset', choices=['cifar10', 'cifar100', 'tiny_imagenet'], default='cifar10')
 parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet'], default='none')
 
 # train options
-parser.add_argument('--loss', choices=['CE', 'QUB', 'LS', 'QLS'], default='CE')
+parser.add_argument('--loss', choices=['CE', 'QUB'], default='CE')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=200)
@@ -48,6 +48,7 @@ parser.add_argument('--test_eps', type=float, default=8.)
 # Logger options
 parser.add_argument('--log_upper', default=False, action='store_true')
 parser.add_argument('--log_K', default=False, action='store_true')
+parser.add_argument('--log_QUB', default=False, action='store_true')
 parser.add_argument('--grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
@@ -61,14 +62,19 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{method}(eps{args.eps}_iter{args.num_step})_epoch{args.epoch}_{args.normalize}_{cur}'
 log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    # log_name = f'{args.loss}({args.factor})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
     log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
-if args.loss=='QUB' and args.log_upper:
-    upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
-    real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
+if args.loss=='QUB' and args.log_QUB:
+    QUB_0_writer = SummaryWriter(f'QUB_Logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/QUB_0')
+    QUB_1_writer = SummaryWriter(f'QUB_Logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/QUB_1')
+    QUB_2_writer = SummaryWriter(f'QUB_Logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/QUB_2')
+    QUB_tot_writer = SummaryWriter(f'QUB_Logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/QUB_tot')
+else:
+    writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+    if args.loss=='QUB' and args.log_upper:
+        upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
+        real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
 
 # Data
 print('==> Preparing data..')
@@ -129,6 +135,8 @@ def train(epoch):
     real_adv_loss = 0 
     tot_grad_norm = 0
     tot_K, max_K = 0, 0
+
+    QUB_values = [0, 0, 0]
     for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -152,29 +160,16 @@ def train(epoch):
 
             loss = F.cross_entropy(outputs, targets, reduction='none')
 
-            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
+            # upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
+            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) # Just 2 args
             if args.K<0:
                 upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
 
-            loss = upper_loss.mean()
-        elif args.loss == 'LS':
-            inputs = attack.perturb(inputs, targets)
-            outputs = model(inputs)
-            label_smoothing = Variable(torch.tensor(_label_smoothing(targets, args.factor)).to(device))
-            loss = LabelSmoothLoss(outputs, label_smoothing.float())
-        elif args.loss == 'QLS':
-            outputs = model(inputs)
-            softmax = F.softmax(outputs, dim=1)
-            label_smoothing = Variable(torch.tensor(_label_smoothing(targets, args.factor)).to(device))
-            # y_onehot = F.one_hot(targets, num_classes = softmax.shape[1])
+            if args.log_QUB:
+                QUB_values[0] += loss.sum().item()
+                QUB_values[1] += (torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1)).sum().item()
+                QUB_values[2] += (args.K/2.0*torch.pow(adv_norm, 2)).sum().item()
 
-            adv_inputs = attack.perturb(inputs, targets)
-            adv_outputs = model(adv_inputs)
-            adv_norm = torch.norm(adv_outputs-outputs, dim=1)
-
-            loss = LabelSmoothLoss(outputs, label_smoothing.float())
-
-            upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-label_smoothing), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
             loss = upper_loss.mean()
 
         loss.backward()
@@ -183,7 +178,7 @@ def train(epoch):
             tot_grad_norm += grad_norm.item()
         optimizer.step()
 
-        train_loss += loss.item()
+        train_loss += loss.item()*outputs.shape[0]
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
@@ -192,6 +187,14 @@ def train(epoch):
             real_adv_loss += F.cross_entropy(outputs, targets).item()
 
         scheduler.step()
+
+    if args.loss=='QUB' and args.log_QUB:
+        QUB_0_writer.add_scalar(f'{log_name}', round(QUB_values[0]/total, 4), epoch)
+        QUB_1_writer.add_scalar(f'{log_name}', round(QUB_values[1]/total, 4), epoch)
+        QUB_2_writer.add_scalar(f'{log_name}', round(QUB_values[2]/total, 4), epoch)
+        QUB_tot_writer.add_scalar(f'{log_name}', round(train_loss/total, 4), epoch)
+
+        return
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
@@ -212,6 +215,8 @@ def test(epoch):
     model.eval()
     correct, adv_correct = 0, 0
     total = 0
+    if args.log_QUB:
+        return
     with torch.no_grad():
         for inputs, targets in test_loader:
             inputs, targets = inputs.to(device), targets.to(device)

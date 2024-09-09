@@ -27,7 +27,7 @@ parser.add_argument('--env', type=int, default=0)
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
 # dataset options
-parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar10')
+parser.add_argument('--dataset', choices=['cifar10', 'cifar100', 'tiny_imagenet'], default='cifar10')
 parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'], default='none')
 
 # train options
@@ -62,9 +62,9 @@ set_seed()
 method = 'FGSM_SDI'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_k{args.k})_epoch{args.epoch}_{args.normalize}_{args.factor}_{cur}'
-log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps}_k{args.k})_lr{args.lr}_att{args.lr_att}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_k{args.k})_lr{args.lr}_att{args.lr_att}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')

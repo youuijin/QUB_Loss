@@ -23,7 +23,7 @@ parser.add_argument('--env', type=int, default=0)
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
 # dataset options
-parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar10')
+parser.add_argument('--dataset', choices=['cifar10', 'cifar100', 'tiny_imagenet'], default='cifar10')
 parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'], default='none')
 
 # train options
@@ -56,9 +56,9 @@ best_acc, best_adv_acc = 0, 0  # best test accuracy
 set_seed()
 method = 'NuAT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
-log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+log_name = f'{args.loss}_{method}(eps{args.eps}_fixnuc{args.nuc_max})_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_fixnuc{args.nuc_max})_lr{args.lr}_{cur}'
 
 # Summary Writer
 writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
@@ -115,7 +115,8 @@ def LabelSmoothLoss(input, target):
 attack = Nu_Attack(model, eps=args.eps, alpha=args.alpha, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
-nuc_reg = 0.0
+# nuc_reg = 0.0
+nuc_reg = args.nuc_max
 
 # Train 1 epoch
 def train(epoch):
@@ -195,10 +196,8 @@ def train(epoch):
         writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
     
-    if epoch < (args.epoch-10):
-        nuc_reg += args.nuc_max/(args.epoch-10)
-
-    # writer.add_scalar('train/nuc_reg', nuc_reg, epoch)
+    # if epoch < (args.epoch-10):
+    #     nuc_reg += args.nuc_max/(args.epoch-10)
 
 def test(epoch):
     global best_acc

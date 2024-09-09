@@ -24,7 +24,7 @@ parser.add_argument('--env', type=int, default=0)
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
 # dataset options
-parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar10')
+parser.add_argument('--dataset', choices=['cifar10', 'cifar100', 'tiny_imagenet'], default='cifar10')
 parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'], default='none')
 
 # train options
@@ -69,7 +69,7 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_mom{args.momentum_decay}_lamb{args.lamb}_{args.delta_init})_epoch{args.epoch}_{args.normalize}_{args.sche}_{args.factor}_{cur}'
 log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_{cur}'
     if args.wo_regularizer:
         log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_wo)_lr{args.lr}_{cur}'
 
