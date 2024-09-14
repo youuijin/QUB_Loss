@@ -1,6 +1,7 @@
 import random
 import  torch
 import  numpy as np
+import copy
 
 from utils.model.resnet import *
 from utils.model.wrn import *
@@ -141,10 +142,11 @@ def calc_K(softmax_vector):
     return K_values.detach()
 
 def input_logit_norm(model, input, target):
+    copy_model = copy.deepcopy(model)
     # \nabla_x h(x)
     input = input.clone().detach()
     input.requires_grad_(True)
-    logit = model(input)
+    logit = copy_model(input)
     logit = logit.sum()
 
     logit.backward()
@@ -152,24 +154,29 @@ def input_logit_norm(model, input, target):
     
     input_gradient = input_gradient.reshape(input.shape[0], -1)
     gradient_norms = input_gradient.norm(dim=1)
+
+    del copy_model
     return gradient_norms
 
 def logit_loss_norm(model, input, target):
+    copy_model = copy.deepcopy(model)
     # \nabla_h L(h(x))
-    output = model(input)
+    output = copy_model(input)
     softmax = F.softmax(output, dim=1)
     y_onehot = F.one_hot(target, num_classes = softmax.shape[1])
 
     logit_gradient = softmax - y_onehot
     gradient_norms = logit_gradient.norm(dim=1)
 
+    del copy_model
     return gradient_norms
 
 def input_loss_norm(model, input, target):
+    copy_model = copy.deepcopy(model)
     # \nabla_x L(h(x))
     input = input.clone().detach()
     input.requires_grad_(True)
-    logit = model(input)
+    logit = copy_model(input)
     loss = F.cross_entropy(logit, target)
 
     loss.backward()
@@ -178,4 +185,22 @@ def input_loss_norm(model, input, target):
 
     input_gradient = input_gradient.reshape(input.shape[0], -1)
     gradient_norms = input_gradient.norm(dim=1)
+    del copy_model
     return gradient_norms
+
+def set_K(mode, K, tot_epoch, cur_epoch, acc, l_min, l_max, acc_func):
+    if mode == 'none':
+        return K
+    elif mode == 'linear':
+        K = cur_epoch/tot_epoch * (l_max - l_min) + l_min
+        return K
+    elif mode == 'acc':
+        if acc_func == 'frac':
+            K = K(1-acc)
+        elif acc_func == 'line':
+            K = (l_max-K)*acc + K
+        elif acc_func == 'quad':
+            K = -1*(l_max-K)*(1-acc)*(1-acc) + l_max
+        return K
+    else:
+        raise ValueError("set K with mode none, linear or acc")
