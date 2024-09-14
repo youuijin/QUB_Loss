@@ -293,7 +293,7 @@ for epoch in range(args.epoch):
 
             upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
             if args.K<0:
-                upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
+                upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
 
             loss = upper_loss.mean()
 
@@ -318,7 +318,7 @@ for epoch in range(args.epoch):
             grad_norm_list[0] += input_loss_norm(model, X, y).sum().item()
             grad_norm_list[1] += input_logit_norm(model, X, y).sum().item()
             grad_norm_list[2] += logit_loss_norm(model, X, y).sum().item()
-            cos_sim += F.cosine_similarity((adv_outputs-outputs), (softmax-y_onehot), dim=1).tolist()
+            cos_sim += F.cosine_similarity((output-clean_outputs), (softmax-y_onehot), dim=1).tolist()
 
         scheduler.step()
 
