@@ -37,7 +37,7 @@ parser.add_argument('--device', type=int, default=0)
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
 parser.add_argument('--alpha', type=float, default=4.)
-parser.add_argument('--init', type=str, choices=['Z', 'U', 'B', 'N'], default='Z')
+parser.add_argument('--init', type=str, choices=['Z', 'U', 'B', 'N'], default='U')
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
@@ -148,7 +148,7 @@ def train(epoch):
             tot_grad_norm += grad_norm.item()
         optimizer.step()
 
-        print('optim', loss.item())
+        # print('optim', loss.item())
 
         train_loss += loss.item()
         _, predicted = outputs.max(1)

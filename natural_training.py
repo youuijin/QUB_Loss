@@ -36,7 +36,8 @@ parser.add_argument('--device', type=int, default=0)
 parser.add_argument('--test_eps', type=float, default=8.)
 
 # Logger options
-parser.add_argument('--grad_norm', default=False, action='store_true')
+parser.add_argument('--param_grad_norm', default=False, action='store_true')
+parser.add_argument('--input_grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
 
@@ -50,7 +51,10 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 log_name = f'CE_{method}_lr{args.lr}_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+if not args.input_grad_norm:
+    writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+else:
+    writer = SummaryWriter(f'grad_norm_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 
 # Data
 print('==> Preparing data..')
@@ -113,13 +117,14 @@ def train(epoch):
     correct = 0
     total = 0
     tot_grad_norm = 0
+    grad_norm_list = [0, 0, 0]
     for inputs, targets in train_loader:
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = criterion(outputs, targets)
         loss.backward()
-        if args.grad_norm:
+        if args.param_grad_norm:
             grad_norm = get_grad_norm(model.parameters(), norm_type=2)
             tot_grad_norm += grad_norm.item()
         optimizer.step()
@@ -130,11 +135,24 @@ def train(epoch):
         correct += predicted.eq(targets).sum().item()
 
         # print(loss.item())
+
+        if args.input_grad_norm:
+            grad_norm_list[0] += input_loss_norm(model, inputs, targets).sum().item()
+            grad_norm_list[1] += input_logit_norm(model, inputs, targets).sum().item()
+            grad_norm_list[2] += logit_loss_norm(model, inputs, targets).sum().item()
+            # print('input loss norm', input_loss_norm(model, inputs, targets))
+            # print('input logit norm', input_logit_norm(model, inputs, targets))
+            # print('logit loss norm', logit_loss_norm(model, inputs, targets))
+
         scheduler.step()
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
-    if args.grad_norm:
+    if args.param_grad_norm:
         writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
+    if args.input_grad_norm:
+        writer.add_scalar('grad_norm/input_loss', round(grad_norm_list[0]/total, 4), epoch)
+        writer.add_scalar('grad_norm/input_logit', grad_norm_list[1]/total, epoch)
+        writer.add_scalar('grad_norm/logit_loss', round(grad_norm_list[2]/total, 4), epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
 
 def test(epoch):
@@ -164,7 +182,8 @@ def test(epoch):
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:
-        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
+        if not args.input_grad_norm:
+            torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
         best_adv_acc = 100.*adv_correct/total
         best_acc = acc
         best_epoch = epoch
@@ -183,10 +202,11 @@ tot_time = datetime.now() - train_start
 
 print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
-if args.env>0:
-    file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
-else:
-    file_name = f'./{args.dataset}.csv'
-with open(file_name, 'a', encoding='utf-8', newline='') as f:
-    wr = csv.writer(f)
-    wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])
+if not args.input_grad_norm:
+    if args.env>0:
+        file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
+    else:
+        file_name = f'./{args.dataset}.csv'
+    with open(file_name, 'a', encoding='utf-8', newline='') as f:
+        wr = csv.writer(f)
+        wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])

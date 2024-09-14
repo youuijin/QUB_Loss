@@ -139,3 +139,43 @@ def calc_K(softmax_vector):
     K_values = torch.linalg.matrix_norm(H, ord=2, dim=(-2, -1), keepdim=False)
     # print(K_values.shape)
     return K_values.detach()
+
+def input_logit_norm(model, input, target):
+    # \nabla_x h(x)
+    input = input.clone().detach()
+    input.requires_grad_(True)
+    logit = model(input)
+    logit = logit.sum()
+
+    logit.backward()
+    input_gradient = input.grad
+    
+    input_gradient = input_gradient.reshape(input.shape[0], -1)
+    gradient_norms = input_gradient.norm(dim=1)
+    return gradient_norms
+
+def logit_loss_norm(model, input, target):
+    # \nabla_h L(h(x))
+    output = model(input)
+    softmax = F.softmax(output, dim=1)
+    y_onehot = F.one_hot(target, num_classes = softmax.shape[1])
+
+    logit_gradient = softmax - y_onehot
+    gradient_norms = logit_gradient.norm(dim=1)
+
+    return gradient_norms
+
+def input_loss_norm(model, input, target):
+    # \nabla_x L(h(x))
+    input = input.clone().detach()
+    input.requires_grad_(True)
+    logit = model(input)
+    loss = F.cross_entropy(logit, target)
+
+    loss.backward()
+
+    input_gradient = input.grad
+
+    input_gradient = input_gradient.reshape(input.shape[0], -1)
+    gradient_norms = input_gradient.norm(dim=1)
+    return gradient_norms

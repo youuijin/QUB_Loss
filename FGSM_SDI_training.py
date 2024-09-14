@@ -51,7 +51,8 @@ parser.add_argument('--test_eps', type=float, default=8.)
 # Logger options
 parser.add_argument('--log_upper', default=False, action='store_true')
 parser.add_argument('--log_K', default=False, action='store_true')
-parser.add_argument('--grad_norm', default=False, action='store_true')
+parser.add_argument('--param_grad_norm', default=False, action='store_true')
+parser.add_argument('--input_grad_norm', default=False, action='store_true')
 
 args = parser.parse_args()
 
@@ -67,7 +68,10 @@ if args.loss == 'QUB':
     log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_k{args.k})_lr{args.lr}_att{args.lr_att}_{cur}'
 
 # Summary Writer
-writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+if not args.input_grad_norm:
+    writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+else:
+    writer = SummaryWriter(f'grad_norm_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 if args.loss=='QUB' and args.log_upper:
     upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
     real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
@@ -181,7 +185,14 @@ def adv_FGSM_loss(grad,
     adv_outputs = model(x_adv_final)
     # default : Label Smoothing Loss -> Change to CE Loss
     # loss_robust = LabelSmoothLoss(output, label_smoothing.float())
+
+    grad_norm_list = []
+
     if args.loss == 'CE':
+        if args.input_grad_norm:
+            outputs = model(x_natural)
+            softmax = F.softmax(outputs, dim=1)
+            y_onehot = F.one_hot(y, num_classes = softmax.shape[1])
         loss_robust = F.cross_entropy(adv_outputs, y)
     elif args.loss == 'QUB':
         outputs = model(x_natural)
@@ -204,7 +215,9 @@ def adv_FGSM_loss(grad,
         loss_robust = upper_loss.mean()
 
     loss = loss_robust
-    return loss, adv_outputs
+    if args.input_grad_norm:
+        grad_norm_list = [outputs, softmax, y_onehot]
+    return loss, adv_outputs, grad_norm_list
 
 # Train 1 epoch
 def train(epoch):
@@ -215,6 +228,7 @@ def train(epoch):
     tot_grad_norm = 0
     global tot_K, max_K
     tot_K, max_K = 0, 0
+    grad_norm_list, cos_sim = [0, 0, 0], []
 
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
@@ -229,7 +243,7 @@ def train(epoch):
 
             attacker.zero_grad()
             model.zero_grad()
-            loss_adv, _ = adv_FGSM_loss(grad=grad,
+            loss_adv, _, _ = adv_FGSM_loss(grad=grad,
                                         x_natural=inputs,
                                         y=targets,
                                         for_attacker=1)
@@ -244,23 +258,30 @@ def train(epoch):
         attacker.zero_grad()
 
         # calculate robust loss
-        loss, outputs = adv_FGSM_loss(grad=grad,                                
+        loss, adv_outputs, others = adv_FGSM_loss(grad=grad,                                
                                     x_natural=inputs,
                                     y=targets,
                                     for_attacker=0)
         loss.backward()
-        if args.grad_norm:
+        if args.param_grad_norm:
             grad_norm = get_grad_norm(model.parameters(), norm_type=2)
             tot_grad_norm += grad_norm.item()
         optimizer.step()
         
         train_loss += loss.item()
-        _, predicted = outputs.max(1)
+        _, predicted = adv_outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
         if args.loss=='QUB' and args.log_upper:
-            real_adv_loss += F.cross_entropy(outputs, targets).item()
+            real_adv_loss += F.cross_entropy(adv_outputs, targets).item()
+
+        if args.input_grad_norm:
+            outputs, softmax, y_onehot = others
+            grad_norm_list[0] += input_loss_norm(model, inputs, targets).sum().item()
+            grad_norm_list[1] += input_logit_norm(model, inputs, targets).sum().item()
+            grad_norm_list[2] += logit_loss_norm(model, inputs, targets).sum().item()
+            cos_sim += F.cosine_similarity((adv_outputs-outputs), (softmax-y_onehot), dim=1).tolist()
 
         scheduler.step()
         attacker_scheduler.step()
@@ -273,8 +294,17 @@ def train(epoch):
     if args.loss=='QUB' and args.log_K:
         writer.add_scalar('train/Mean_K', round(tot_K/total, 4), epoch)
         writer.add_scalar('train/Max_K', max_K, epoch)
-    if args.grad_norm:
+    if args.param_grad_norm:
         writer.add_scalar('train/grad_norm', tot_grad_norm, epoch)
+    if args.input_grad_norm:
+        writer.add_scalar('grad_norm/input_loss', round(grad_norm_list[0]/total, 4), epoch)
+        writer.add_scalar('grad_norm/input_logit', grad_norm_list[1]/total, epoch)
+        writer.add_scalar('grad_norm/logit_loss', round(grad_norm_list[2]/total, 4), epoch)
+        writer.add_scalar('cos_sim/mean', np.mean(cos_sim), epoch)
+        writer.add_scalar('cos_sim/std', np.std(cos_sim), epoch)
+        writer.add_scalar('cos_sim/min', np.min(cos_sim), epoch)
+        writer.add_scalar('cos_sim/max', np.max(cos_sim), epoch)
+    # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
 
 def test(epoch):
     global best_acc
@@ -303,7 +333,8 @@ def test(epoch):
     # Save checkpoint.
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
-        torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
+        if not args.input_grad_norm:
+            torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
@@ -321,10 +352,11 @@ tot_time = datetime.now() - train_start
 
 print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
-if args.env>0:
-    file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
-else:
-    file_name = f'./{args.dataset}.csv'
-with open(file_name, 'a', encoding='utf-8', newline='') as f:
-    wr = csv.writer(f)
-    wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])
+if not args.input_grad_norm:
+    if args.env>0:
+        file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
+    else:
+        file_name = f'./{args.dataset}.csv'
+    with open(file_name, 'a', encoding='utf-8', newline='') as f:
+        wr = csv.writer(f)
+        wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])
