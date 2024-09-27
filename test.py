@@ -14,7 +14,7 @@ parser.add_argument('--random_seed', type=int, default=706)
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
 
 # dataset options
-parser.add_argument('--dataset', choices=['cifar10', 'cifar100'], default='cifar10')
+parser.add_argument('--dataset', choices=['cifar10', 'cifar100', 'tiny_imagenet'], default='cifar10')
 parser.add_argument('--normalize', choices=['none', 'twice', 'imagenet', 'cifar'], default='none')
 
 # test options
@@ -22,7 +22,7 @@ parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--device', type=int, default=0)
 parser.add_argument('--model_path', type=str, default="")
 parser.add_argument('--saved_dir', type=str, default="./saved_models")
-parser.add_argument('--csv_name', type=str, default="./test.csv")
+# parser.add_argument('--csv_name', type=str, default="./test.csv")
 
 parser.add_argument('--env', type=int, default=0)
 
@@ -36,7 +36,8 @@ set_seed()
 
 # make test list
 tested_model_paths = []
-f = open(args.csv_name, 'r', encoding='utf-8')
+csv_name = f'./csvs/test/{args.dataset}_{args.model}_white.csv'
+f = open(csv_name, 'r', encoding='utf-8')
 rdr = csv.reader(f)
 next(rdr)
 for line in rdr:
@@ -113,6 +114,6 @@ for model_path in model_paths:
         print(f"natural accuracy: {attack_success[i][0]}, robust accuracy: {attack_success[i][1]}")
     # print()
 
-    with open(f'{args.csv_name}', 'a', encoding='utf-8', newline='') as f:
+    with open(f'{csv_name}', 'a', encoding='utf-8', newline='') as f:
         wr = csv.writer(f)
         wr.writerow([f'{model_path}', args.eps, f'env{args.env}', attack_success[0][0]] + [attack_success[i][1] for i in range(4)])

@@ -19,6 +19,7 @@ parser = argparse.ArgumentParser(description='PyTorch CIFAR10 TRADES Training')
 
 # env options
 parser.add_argument('--env', type=int, default=0)
+parser.add_argument('--seed', type=int, default=706)
 
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
@@ -55,18 +56,19 @@ args = parser.parse_args()
 
 device = f'cuda:{args.device}'
 best_acc, best_adv_acc = 0, 0  # best test accuracy
+last_acc, last_adv_acc = 0, 0
 
-set_seed()
+set_seed(seed=args.seed)
 method = 'TRADES'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{method}(eps{args.eps}_iter{args.num_step})_beta{args.beta}_epoch{args.epoch}_{args.normalize}_{cur}'
-log_name = f'{args.loss}_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+log_name = f'{method}(eps{args.eps})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps})_lr{args.lr}_{cur}'
+    log_name = f'{method}(eps{args.eps})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
 
 # Summary Writer
 if not args.input_grad_norm:
-    writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+    writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/seed{args.seed}/{log_name}')
 else:
     writer = SummaryWriter(f'grad_norm_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 if args.loss=='QUB' and args.log_upper:
@@ -83,7 +85,7 @@ elif args.normalize == "twice":
 else: 
     norm_mean, norm_std = (0, 0, 0), (1, 1, 1)
 
-train_loader, test_loader, n_way = set_dataloader(args.dataset, args.batch_size, norm_mean, norm_std)
+train_loader, test_loader, n_way, imgsz = set_dataloader(args.dataset, args.batch_size, norm_mean, norm_std)
 
 # Model
 print('==> Building model..')
@@ -168,7 +170,7 @@ def train(epoch):
             tot_grad_norm += grad_norm.item()
         optimizer.step()
 
-        train_loss += loss.item()
+        train_loss += loss.item()*targets.size(0)
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
@@ -206,9 +208,8 @@ def train(epoch):
         writer.add_scalar('cos_sim/max', np.max(cos_sim), epoch)
 
 def test(epoch):
-    global best_acc
-    global best_adv_acc
-    global best_epoch
+    global best_acc, best_adv_acc, best_epoch
+    global last_acc, last_adv_acc
     model.eval()
     correct, adv_correct = 0, 0
     total = 0
@@ -225,7 +226,6 @@ def test(epoch):
             adv_correct += adv_predicted.eq(targets).sum().item()
 
             total += targets.size(0)
-        print('test acc:', 100.*correct/total, 'test adv acc:', 100.*adv_correct/total)
         writer.add_scalar('test/SA', 100.*correct/total, epoch)
         writer.add_scalar('test/RA', 100.*adv_correct/total, epoch)
 
@@ -233,10 +233,13 @@ def test(epoch):
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
         if not args.input_grad_norm:
-            torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
+            torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/seed{args.seed}/{args.model}_{log_name}_best.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
+    last_acc = 100.*correct/total
+    last_adv_acc = 100.*adv_correct/total
+    torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/seed{args.seed}/{args.model}_{log_name}_last.pt')
 
 print('start training..')
 
@@ -255,9 +258,9 @@ print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
 if not args.input_grad_norm:
     if args.env>0:
-        file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
+        file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}_seed{args.seed}.csv'
     else:
         file_name = f'./{args.dataset}.csv'
     with open(file_name, 'a', encoding='utf-8', newline='') as f:
         wr = csv.writer(f)
-        wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])
+        wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, best_epoch, last_acc, last_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])

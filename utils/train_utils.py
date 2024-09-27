@@ -78,7 +78,7 @@ def set_dataloader(dataset, batch_size, norm_mean, norm_std):
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=0)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=0)
 
-    return train_loader, test_loader, data_num
+    return train_loader, test_loader, data_num, imgsz
 
 def set_dataset(dataset, norm_mean, norm_std):
     ### dataset ###
@@ -177,14 +177,15 @@ def input_loss_norm(model, input, target):
     input = input.clone().detach()
     input.requires_grad_(True)
     logit = copy_model(input)
-    loss = F.cross_entropy(logit, target)
+    loss = F.cross_entropy(logit, target, reduction='sum')
 
     loss.backward()
 
     input_gradient = input.grad
 
     input_gradient = input_gradient.reshape(input.shape[0], -1)
-    gradient_norms = input_gradient.norm(dim=1)
+    gradient_norms = input_gradient.norm(dim=-1)
+
     del copy_model
     return gradient_norms
 
@@ -196,7 +197,7 @@ def set_K(mode, K, tot_epoch, cur_epoch, acc, l_min, l_max, acc_func):
         return K
     elif mode == 'acc':
         if acc_func == 'frac':
-            K = K(1-acc)
+            K = K/(1-acc)
         elif acc_func == 'line':
             K = (l_max-K)*acc + K
         elif acc_func == 'quad':

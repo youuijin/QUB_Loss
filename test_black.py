@@ -36,7 +36,8 @@ set_seed()
 
 # make test list
 tested_model_paths = []
-f = open(args.csv_name, 'r', encoding='utf-8')
+csv_name = f'./csvs/test/{args.dataset}_{args.model}_black.csv'
+f = open(csv_name, 'r', encoding='utf-8')
 rdr = csv.reader(f)
 next(rdr)
 for line in rdr:
@@ -208,6 +209,6 @@ for model_path in model_paths:
     attack_success[4][1] = 100. * sum(robust_acc)/len(test_loader.dataset)
     print(f"natural accuracy: {attack_success[4][0]}, robust accuracy: {attack_success[4][1]}\n")
 
-    with open(f'{args.csv_name}', 'a', encoding='utf-8', newline='') as f:
+    with open(f'{csv_name}', 'a', encoding='utf-8', newline='') as f:
         wr = csv.writer(f)
         wr.writerow([f'{model_path}', args.eps, f'env{args.env}', attack_success[0][0]] + [attack_success[i][1] for i in range(5)])

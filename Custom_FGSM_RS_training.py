@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser(description='PyTorch CIFAR10 FGSM-RS Training')
 
 # env options
 parser.add_argument('--env', type=int, default=0)
-
+parser.add_argument('--seed', type=int, default=706)
 
 # model options
 parser.add_argument('--model', choices=['resnet18', 'resnet34', 'preresnet18', 'wrn_28_10', 'wrn_34_10'], default='resnet18')
@@ -38,8 +38,6 @@ parser.add_argument('--device', type=int, default=0)
 
 # attack options
 parser.add_argument('--eps', type=float, default=8.)
-parser.add_argument('--a1', type=float, default=4.)
-parser.add_argument('--a2', type=float, default=4.)
 parser.add_argument('--K', type=float, default=0.5)
 
 # test options
@@ -55,18 +53,19 @@ args = parser.parse_args()
 
 device = f'cuda:{args.device}'
 best_acc, best_adv_acc = 0, 0  # best test accuracy
+last_acc, last_adv_acc = 0, 0
 
-set_seed()
+set_seed(seed=args.seed)
 method = 'Custom_FGSM_RS'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_{args.alpha})_epoch{args.epoch}_{args.normalize}_{args.sche}_{cur}'
-log_name = f'{args.loss}_{method}(eps{args.eps}_{args.a1}_{args.a2})_lr{args.lr}_{cur}'
+log_name = f'{method}(eps{args.eps})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{args.loss}(K{args.K})_{method}(eps{args.eps}_{args.a1}_{args.a2})_lr{args.lr}_{cur}'
+    log_name = f'{method}(eps{args.eps})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
 
 # Summary Writer
 if not args.input_grad_norm:
-    writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
+    writer = SummaryWriter(f'logs/{args.dataset}/{args.model}/env{args.env}/seed{args.seed}/{log_name}')
 else:
     writer = SummaryWriter(f'grad_norm_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}')
 if args.loss=='QUB' and args.log_upper:
@@ -86,7 +85,7 @@ elif args.normalize == "twice":
 else: 
     norm_mean, norm_std = (0, 0, 0), (1, 1, 1)
 
-train_loader, test_loader, n_way = set_dataloader(args.dataset, args.batch_size, norm_mean, norm_std)
+train_loader, test_loader, n_way, imgsz = set_dataloader(args.dataset, args.batch_size, norm_mean, norm_std)
 
 # Model
 print('==> Building model..')
@@ -94,14 +93,6 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Optimizer
-# optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-# lr_steps = len(train_loader) * args.epoch
-# if args.sche == 'cyclic':
-#     lr_min = 0.0
-#     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr_min, max_lr=args.lr,
-#         step_size_up=lr_steps / 2, step_size_down=lr_steps / 2)
-# elif args.sche == 'multistep':
-#     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 lr_steps = args.epoch * len(train_loader)
 if args.env == 1:
@@ -121,18 +112,8 @@ else:
     elif args.sche == 'multistep':
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(lr_steps*0.5), int(lr_steps*0.8)], gamma=0.1)
 
-def _label_smoothing(label, factor):
-    one_hot = np.eye(n_way)[label.to(device).data.cpu().numpy()]
-    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(n_way - 1))
-    return result
-
-def LabelSmoothLoss(input, target):
-    log_prob = F.log_softmax(input, dim=-1)
-    loss = (-target * log_prob).sum(dim=-1).mean()
-    return loss
-
 # Train Attack & Test Attack
-attack = Custom_FGSM_RS_Attack(model, eps=args.eps, a1=args.a1, a2=args.a2, mean=norm_mean, std=norm_std, device=device)
+attack = Custom_FGSM_RS_Attack(model, eps=args.eps, a1=args.eps/2, a2=args.eps/2, mean=norm_mean, std=norm_std, device=device)
 test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
@@ -175,6 +156,7 @@ def train(epoch):
 
             upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
             if args.K<0:
+                # use sample-wise K
                 upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
 
             loss = upper_loss.mean()
@@ -186,19 +168,13 @@ def train(epoch):
             tot_grad_norm += grad_norm.item()
         optimizer.step()
 
-        train_loss += loss.item()
-        _, predicted = outputs.max(1)
+        train_loss += loss.item()*targets.size(0)
+        _, predicted = adv_outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
         if args.loss=='QUB' and args.log_upper:
             real_adv_loss += F.cross_entropy(adv_outputs, targets).item()
-
-        if args.input_grad_norm:
-            grad_norm_list[0] += input_loss_norm(model, inputs, targets).sum().item()
-            grad_norm_list[1] += input_logit_norm(model, inputs, targets).sum().item()
-            grad_norm_list[2] += logit_loss_norm(model, inputs, targets).sum().item()
-            cos_sim += F.cosine_similarity((adv_outputs-outputs), (softmax-y_onehot), dim=1).tolist()
 
         scheduler.step()
 
@@ -220,12 +196,12 @@ def train(epoch):
         writer.add_scalar('cos_sim/std', np.std(cos_sim), epoch)
         writer.add_scalar('cos_sim/min', np.min(cos_sim), epoch)
         writer.add_scalar('cos_sim/max', np.max(cos_sim), epoch)
+        writer.add_scalar('grad_norm/input_logit*logit_loss', round(grad_norm_list[0]/total, 4), epoch)
     # print('train acc:', 100.*correct/total, 'train_loss:', round(train_loss/total, 4))
 
 def test(epoch):
-    global best_acc
-    global best_adv_acc
-    global best_epoch
+    global best_acc, best_adv_acc, best_epoch
+    global last_acc, last_adv_acc
     model.eval()
     correct, adv_correct = 0, 0
     total = 0
@@ -242,7 +218,6 @@ def test(epoch):
             adv_correct += adv_predicted.eq(targets).sum().item()
 
             total += targets.size(0)
-        # print('test acc:', 100.*correct/total, 'test adv acc:', 100.*adv_correct/total)
         writer.add_scalar('test/SA', 100.*correct/total, epoch)
         writer.add_scalar('test/RA', 100.*adv_correct/total, epoch)
 
@@ -250,10 +225,13 @@ def test(epoch):
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
         if not args.input_grad_norm:
-            torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/{args.model}_{log_name}.pt')
+            torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/seed{args.seed}/{args.model}_{log_name}_best.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch
+    last_acc = 100.*correct/total
+    last_adv_acc = 100.*adv_correct/total
+    torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/seed{args.seed}/{args.model}_{log_name}_last.pt')
 
 print('start training..')
 
@@ -270,9 +248,9 @@ print('======================================')
 print(f'best acc:{best_acc}%  best adv acc:{best_adv_acc}%  in epoch {best_epoch}')
 if not args.input_grad_norm:
     if args.env>0:
-        file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}.csv'
+        file_name = f'./csvs/env{args.env}/{args.dataset}/{args.model}_seed{args.seed}.csv'
     else:
         file_name = f'./{args.dataset}.csv'
     with open(file_name, 'a', encoding='utf-8', newline='') as f:
         wr = csv.writer(f)
-        wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])
+        wr.writerow([f'{args.model}_{log_name}', args.model, method, best_acc, best_adv_acc, best_epoch, last_acc, last_adv_acc, str(train_time).split(".")[0], str(tot_time).split(".")[0],])
