@@ -145,6 +145,7 @@ def train(epoch):
             reg_loss = torch.norm(outputs - adv_outputs, 'nuc')/inputs.shape[0]
 
             loss = loss + nuc_reg * reg_loss
+            # print("loss", loss)
 
         elif args.loss == 'QUB':
             outputs = model(inputs)

@@ -84,18 +84,6 @@ if args.loss=='QUB' and args.log_upper:
     upper_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/upper')
     real_writer = SummaryWriter(f'upper_logs/{args.dataset}/{args.model}/env{args.env}/{log_name}/real')
 
-def _label_smoothing(label, factor):
-    one_hot = np.eye(n_way)[label.to(device).data.cpu().numpy()]
-
-    result = one_hot * factor + (one_hot - 1.) * ((factor - 1) / float(n_way - 1))
-
-    return result
-
-def LabelSmoothLoss(input, target):
-    log_prob = F.log_softmax(input, dim=-1)
-    loss = (-target * log_prob).sum(dim=-1).mean()
-    return loss
-
 # Data
 print('==> Preparing data..')
 
@@ -239,7 +227,7 @@ for epoch in range(args.epoch):
         rst = torch.zeros(batch_size, 3, imgsz, imgsz).to(device)
         X, transform_info = atta_aug(X, rst)
 
-        label_smoothing = Variable(torch.tensor(_label_smoothing(y, args.factor)).to(device)).float()
+        # label_smoothing = Variable(torch.tensor(_label_smoothing(y, args.factor)).to(device)).float()
 
         delta.requires_grad = True
         ori_output = model(X + delta[:X.size(0)])

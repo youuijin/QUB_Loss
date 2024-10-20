@@ -226,7 +226,7 @@ def test(epoch):
     adv_acc = 100.*adv_correct/total
     if adv_acc > best_adv_acc:
         if not args.input_grad_norm:
-            torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/seed{args.seed}/{args.model}_{log_name}.pt')
+            torch.save(model.state_dict(), f'./env_models/env{args.env}/{args.dataset}/seed{args.seed}/{args.model}_{log_name}_best.pt')
         best_adv_acc = adv_acc
         best_acc = 100.*correct/total
         best_epoch = epoch

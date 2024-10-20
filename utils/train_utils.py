@@ -81,6 +81,10 @@ def set_dataloader(dataset, batch_size, norm_mean, norm_std):
     return train_loader, test_loader, data_num, imgsz
 
 def set_dataset(dataset, norm_mean, norm_std):
+    if dataset in ['cifar10', 'cifar100']:
+        imgsz = 32
+    else:
+        imgsz = 64
     ### dataset ###
     transform = transforms.Compose([transforms.Pad(padding=4),
                                     transforms.ToTensor(),
@@ -100,9 +104,19 @@ def set_dataset(dataset, norm_mean, norm_std):
         train_data = SVHN(root='./data', split='train', download=True, transform=transform)
         test_data = SVHN(root='./data', split='test', download=True, transform=transform)
         data_num = 10
+    elif dataset == 'tiny_imagenet':
+        tot_dataset = ImageFolder(root='./data/tiny-imagenet-200/train', transform=transform)
+        train_size, test_size = int(len(tot_dataset)*0.8), len(tot_dataset) - int(len(tot_dataset)*0.8)
+
+        train_data, test_data = random_split(tot_dataset, [train_size, test_size])
+        test_data = Subset(
+            ImageFolder('./data/tiny-imagenet-200/train', transform=transform_test),
+            test_data.indices
+        )
+        data_num = 200
 
 
-    return train_data, test_data, data_num
+    return train_data, test_data, data_num, imgsz
 
 @torch.no_grad()
 def get_grad_norm(parameters, norm_type=2):

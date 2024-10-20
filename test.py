@@ -35,8 +35,14 @@ device = f'cuda:{args.device}'
 set_seed()
 
 # make test list
+if "seed" in args.saved_dir:
+    seed_name = args.saved_dir.split('/')[-1]
+    csv_name = f'./csvs/test/{args.dataset}_{args.model}_white_{seed_name}.csv'
+else:
+    seed_name = None
+    csv_name = f'./csvs/test/{args.dataset}_{args.model}_white.csv'
 tested_model_paths = []
-csv_name = f'./csvs/test/{args.dataset}_{args.model}_white.csv'
+
 f = open(csv_name, 'r', encoding='utf-8')
 rdr = csv.reader(f)
 next(rdr)
@@ -64,7 +70,7 @@ else:
 
 norm_mean, norm_std = (0, 0, 0), (1, 1, 1)
 
-_, test_loader, n_way = set_dataloader(args.dataset, args.batch_size, norm_mean, norm_std)
+_, test_loader, n_way, imgsz = set_dataloader(args.dataset, args.batch_size, norm_mean, norm_std)
 
 def accuracy(model, inputs, labels):
     net_out = model(inputs)
