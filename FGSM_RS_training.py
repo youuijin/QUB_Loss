@@ -123,7 +123,7 @@ else:
 
 # Train Attack & Test Attack
 attack = FGSM_RS_Attack(model, eps=args.eps, alpha=args.eps*1.25, mean=norm_mean, std=norm_std, device=device)
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 tot_K, max_K = 0, 0
 

@@ -97,7 +97,7 @@ model = model.to(device)
 
 # Train Attack & Test Attack
 attacker = One_Layer_Attacker(eps=args.eps/255., input_channel=6).to(device)
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Optimizer
 # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)

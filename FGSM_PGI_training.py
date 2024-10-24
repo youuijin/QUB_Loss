@@ -69,7 +69,7 @@ set_seed(seed=args.seed)
 method = 'FGSM_PGI'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_mom{args.momentum_decay}_lamb{args.lamb}_{args.delta_init})_epoch{args.epoch}_{args.normalize}_{args.sche}_{args.factor}_{cur}'
-log_name = f'{method}(eps{args.eps})_{args.loss}_lr{args.lr}_{cur}'
+log_name = f'{method}(eps{args.eps}_lamb{args.lamb})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
     log_name = f'{method}(eps{args.eps}_lamb{args.lamb})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
     if args.wo_regularizer:
@@ -113,7 +113,7 @@ model = set_model(model_name=args.model, n_class=n_way)
 model = model.to(device)
 
 # Train Attack & Test Attack
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 batch_size = args.batch_size
 

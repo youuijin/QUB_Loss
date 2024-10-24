@@ -60,9 +60,9 @@ set_seed(seed=args.seed)
 method = 'Free_AT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{method}(eps{args.eps}_m{args.m})_epoch{args.epoch}_lr{args.lr}_{args.normalize}_{cur}'
-log_name = f'{method}(eps{args.eps})_{args.loss}_lr{args.lr}_{cur}'
+log_name = f'{method}(eps{args.eps}_m{args.m})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{method}(eps{args.eps})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
+    log_name = f'{method}(eps{args.eps}_m{args.m})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
 
 # Summary Writer
 if not args.input_grad_norm:
@@ -115,7 +115,7 @@ else:
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.8)], gamma=0.1)
 
 # Train Attack & Test Attack
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 norm_mean = torch.tensor(norm_mean).to(device).view(1, 3, 1, 1)
 norm_std = torch.tensor(norm_std).to(device).view(1, 3, 1, 1)

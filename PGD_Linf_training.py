@@ -33,15 +33,11 @@ parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--device', type=int, default=0)
 
-parser.add_argument('--factor', type=float, default=0.6, help='Factor for Label smoothing loss (LS, QLS)')
-
 # attack options
 parser.add_argument('--num_step', type=int, default=10)
 parser.add_argument('--eps', type=float, default=8.)
 parser.add_argument('--alpha', type=float, default=2.)
 parser.add_argument('--K', type=float, default=0.5)
-
-parser.add_argument('--config', type=str, default='none')
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
@@ -63,9 +59,9 @@ set_seed(seed=args.seed)
 method = 'PGD_AT'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{method}(eps{args.eps}_iter{args.num_step})_epoch{args.epoch}_{args.normalize}_{cur}'
-log_name = f'{method}(eps{args.eps})_{args.loss}_lr{args.lr}_{cur}'
+log_name = f'{method}(eps{args.eps}_alpha{args.alpha})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{method}(eps{args.eps})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
+    log_name = f'{method}(eps{args.eps}_alpha{args.alpha})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
 
 # Summary Writer
 if args.loss=='QUB' and args.log_QUB:
@@ -119,7 +115,7 @@ else:
 
 # Train Attack & Test Attack
 attack = PGDAttack(model, eps=args.eps, alpha=args.alpha, iter=args.num_step, mean=norm_mean, std=norm_std, device=device)
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
 def train(epoch):

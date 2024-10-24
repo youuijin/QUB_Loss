@@ -114,7 +114,7 @@ else:
 
 # Train Attack & Test Attack
 attack = Custom_FGSM_RS_Attack(model, eps=args.eps, a1=args.eps/2, a2=args.eps/2, mean=norm_mean, std=norm_std, device=device)
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
 def train(epoch):

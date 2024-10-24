@@ -99,7 +99,7 @@ def criterion(outputs, targets):
     return F.cross_entropy(outputs, targets)
 
 # Test Attack
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
 def train(epoch):

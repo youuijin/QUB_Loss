@@ -93,7 +93,7 @@ model = model.to(device)
 
 # Train Attack & Test Attack
 attack = FGSM_CKPT_Attack(model, eps=args.eps, alpha=args.alpha, c=args.c, mean=norm_mean, std=norm_std, device=device)
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Optimizer
 # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)

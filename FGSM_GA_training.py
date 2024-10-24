@@ -61,9 +61,9 @@ set_seed(seed=args.seed)
 method = 'FGSM_GA'
 cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{args.loss}_{method}(eps{args.eps}_lamb{args.lamb})_lr{args.lr}_{args.lr_min}_epoch{args.epoch}_{args.sche}_{cur}'
-log_name = f'{method}(eps{args.eps})_{args.loss}_lr{args.lr}_{cur}'
+log_name = f'{method}(eps{args.eps}_lamb{args.lamb})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{method}(eps{args.eps})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
+    log_name = f'{method}(eps{args.eps}_lamb{args.lamb})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
 
 # Summary Writer
 if not args.input_grad_norm:
@@ -132,7 +132,7 @@ else:
 
 # Train Attack & Test Attack
 attack = FGSM_Attack(model, eps=args.eps, mean=norm_mean, std=norm_std, device=device)
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 def l2_norm_batch(v):
     norms = (v ** 2).sum([1, 2, 3]) ** 0.5

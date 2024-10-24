@@ -114,7 +114,7 @@ criterion_kl = nn.KLDivLoss(size_average=False)
 
 # Train Attack & Test Attack
 attack = TRADESAttack(model, eps=args.eps, alpha=args.alpha, iter=args.num_step, mean=norm_mean, std=norm_std, device=device)
-test_attack = PGDAttack(model, eps=args.test_eps, alpha=2., iter=10, mean=norm_mean, std=norm_std, device=device)
+test_attack = PGDAttack(model, eps=args.test_eps, alpha=args.test_eps/4., iter=10, mean=norm_mean, std=norm_std, device=device)
 
 # Train 1 epoch
 def train(epoch):
