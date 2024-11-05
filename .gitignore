@@ -17,3 +17,5 @@ commands/
 grad_norm_logs/
 2_logs/
 env_models_2/
+tax_logs/
+QUB_GAP/
