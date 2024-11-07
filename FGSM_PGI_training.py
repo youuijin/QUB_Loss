@@ -48,6 +48,7 @@ parser.add_argument('--factor', default=0.6, type=float, help='Label Smoothing')
 # QUB options
 parser.add_argument('--wo_regularizer', action='store_true', default=False, help='if true, dont use MSE Loss')
 parser.add_argument('--K', type=float, default=0.5)
+parser.add_argument('--QUB_reg', default=0., type=float)
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
@@ -72,6 +73,8 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 log_name = f'{method}(eps{args.eps}_lamb{args.lamb})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
     log_name = f'{method}(eps{args.eps}_lamb{args.lamb})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
+    if args.QUB_reg>0:
+        log_name = f'{method}(eps{args.eps}_lamb{args.lamb}_QUBREG{args.QUB_reg})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
     if args.wo_regularizer:
         log_name = f'{method}(eps{args.eps}_wo)_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
 
@@ -175,6 +178,7 @@ for epoch in range(args.epoch):
     start = datetime.now()
     # a_delta, a_mom = train(epoch, cifar_x, cifar_y, a_delta, a_mom)
     train_loss = 0
+    tot_reg = 0
     correct = 0
     total = 0
     real_adv_loss = 0
@@ -281,8 +285,14 @@ for epoch in range(args.epoch):
             loss = F.cross_entropy(clean_outputs, y, reduction='none')
 
             upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + args.K/2.0*torch.pow(adv_norm, 2)
+            
             if args.K<0:
                 upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + K_values/2.0*torch.pow(adv_norm, 2)
+
+            if args.QUB_reg>0:
+                reg_value = torch.pow(upper_loss-F.cross_entropy(output, y, reduction='none'), 2)
+                upper_loss += args.QUB_reg*reg_value
+                tot_reg += reg_value.item()
 
             loss = upper_loss.mean()
 
@@ -318,6 +328,8 @@ for epoch in range(args.epoch):
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
+    if args.QUB_reg>0:
+        writer.add_scalar('train/regularizer', tot_reg/total, epoch)
     if args.loss=='QUB' and args.log_upper:
         upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
         real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)

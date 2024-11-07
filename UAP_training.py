@@ -64,7 +64,7 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 # log_name = f'{method}(eps{args.eps}_iter{args.num_step})_epoch{args.epoch}_{args.normalize}_{cur}'
 log_name = f'{method}(eps{args.eps}_uap{args.uap_eps})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
-    log_name = f'{method}(eps{args.eps}_uap{args.uap_eps})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
+    log_name = f'{method}(eps{args.eps}_uap{args.uap_eps}_lamb{args.lamb})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
 
 # Summary Writer
 if args.loss=='QUB' and args.log_QUB:

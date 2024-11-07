@@ -38,6 +38,7 @@ parser.add_argument('--num_step', type=int, default=10)
 parser.add_argument('--eps', type=float, default=8.)
 parser.add_argument('--alpha', type=float, default=2.)
 parser.add_argument('--K', type=float, default=0.5)
+parser.add_argument('--QUB_reg', type=float, default=0.)
 
 # test options
 parser.add_argument('--test_eps', type=float, default=8.)
@@ -62,6 +63,8 @@ cur = datetime.now().strftime('%m-%d_%H-%M')
 log_name = f'{method}(eps{args.eps}_alpha{args.alpha})_{args.loss}_lr{args.lr}_{cur}'
 if args.loss == 'QUB':
     log_name = f'{method}(eps{args.eps}_alpha{args.alpha})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
+    if args.QUB_reg>0:
+        log_name = f'{method}(eps{args.eps}_alpha{args.alpha}_QUBREG{args.QUB_reg})_{args.loss}(K{args.K})_lr{args.lr}_{cur}'
 
 # Summary Writer
 if args.loss=='QUB' and args.log_QUB:
@@ -124,6 +127,7 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
+    tot_reg = 0
     real_adv_loss = 0 
     tot_grad_norm = 0
     tot_K, max_K = 0, 0
@@ -165,6 +169,11 @@ def train(epoch):
                 QUB_values[1] += (torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1)).sum().item()
                 QUB_values[2] += (args.K/2.0*torch.pow(adv_norm, 2)).sum().item()
 
+            if args.QUB_reg>0:
+                reg_value = torch.pow(upper_loss-F.cross_entropy(adv_outputs, targets, reduction='none'), 2)
+                upper_loss += args.QUB_reg*reg_value
+                tot_reg += reg_value.item()
+
             loss = upper_loss.mean()
 
         loss.backward()
@@ -199,6 +208,8 @@ def train(epoch):
 
     writer.add_scalar('train/acc', 100.*correct/total, epoch)
     writer.add_scalar('train/loss', round(train_loss/total, 4), epoch)
+    if args.QUB_reg>0:
+        writer.add_scalar('train/regularizer', tot_reg/total, epoch)
     if args.loss=='QUB' and args.log_upper:
         upper_writer.add_scalar(f'train/{log_name}', round(train_loss/total, 4), epoch)
         real_writer.add_scalar(f'train/{log_name}', round(real_adv_loss/total, 4), epoch)
