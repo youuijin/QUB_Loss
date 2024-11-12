@@ -149,7 +149,7 @@ class FGSM_PGI_Trainer(Trainer):
                         upper_loss += cur_reg*dist 
                         # tot_reg += reg_value.sum().item() #TODO: logging
 
-                    loss = upper_loss.mean()
+                    loss = upper_loss.mean() + self.lamb*loss_fn(output.float(), ori_output.float())
 
                 self.optimizer.zero_grad()
                 loss.backward()
