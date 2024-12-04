@@ -272,29 +272,3 @@ def set_attack_hyperparam(train_attack, parser):
         parser.add_argument('--beta', type=float, default=6.)
 
     return parser
-
-def set_trainer(train_attack, args):
-    if train_attack == 'None':
-        trainer = Trainers.Natural_trainer.Natural_Trainer(args)
-    elif train_attack == 'Free':
-        trainer = Trainers.Free_trainer.Free_Trainer(args)
-    elif train_attack == 'FGSM_RS':
-        trainer = Trainers.FGSM_RS_trainer.FGSM_RS_Trainer(args)
-    elif train_attack == 'FGSM_GA':
-        trainer = Trainers.FGSM_GA_trainer.FGSM_GA_Trainer(args)
-    elif train_attack == 'FGSM_CKPT':
-        trainer = Trainers.FGSM_CKPT_trainer.FGSM_CKPT_Trainer(args)
-    elif train_attack == 'FGSM_PGI':
-        trainer = Trainers.FGSM_PGI_trainer.FGSM_PGI_Trainer(args)
-    elif train_attack == 'FGSM_UAP':
-        trainer = Trainers.UAP_trainer.FGSM_UAP_Trainer(args)
-    elif train_attack == 'PGD_Linf':
-        trainer = Trainers.PGD_Linf_trainer.PGD_Linf_Trainer(args)
-    elif train_attack == 'GAT':
-        trainer = Trainers.GAT_trainer.GAT_Trainer(args)
-    elif train_attack == 'NuAT':
-        trainer = Trainers.NuAT_trainer.NuAT_Trainer(args)
-    elif train_attack == 'TRADES':
-        trainer = Trainers.TRADES_trainer.TRADES_Trainer(args)
-
-    return trainer

@@ -2,11 +2,15 @@
 __pycache__/
 logs/
 new_logs/
+logs_final/
 data/
 saved_models/
+saved_models_final/
 env_test_models/
 env_models/
 test_model/
 csvs/
+plot_csvs/
 commands/
 previous_things/
+Tester/

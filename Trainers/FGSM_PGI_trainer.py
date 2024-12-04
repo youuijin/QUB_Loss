@@ -146,7 +146,12 @@ class FGSM_PGI_Trainer(Trainer):
                     if self.QUB_reg>0:
                         adv_CE_loss = F.cross_entropy(output, y, reduction='none')
                         dist = torch.pow(upper_loss-adv_CE_loss, 2)
-                        upper_loss += cur_reg*dist 
+                        if self.QUB_func=='acc':
+                            _, predicted = output.max(1)
+                            probability = predicted.eq(y).sum().item()/y.size(0)
+                            # print(probability)
+                            cur_reg = self.cur_QUB_reg(epoch, probability)
+                        upper_loss += cur_reg*dist
                         # tot_reg += reg_value.sum().item() #TODO: logging
 
                     loss = upper_loss.mean() + self.lamb*loss_fn(output.float(), ori_output.float())

@@ -27,12 +27,14 @@ def get_args():
     parser.add_argument('--scheduler', type=str, default='multistep', choices=['multistep', 'cyclic', 'none'])
     parser.add_argument('--decay_epochs', type=str, default='70,85', help='if you choose multistep scheduler, put epochs to decay split by (,)')
     parser.add_argument('--up_and_down_epochs', type=str, default='15,15', help='if you choose cyclic scheduler, put number of epochs to go up and down split by (,)')
+    parser.add_argument('--base_lr', type=float, default=0.0, help='learning rate')
 
     # Adversarial Training options
     parser.add_argument('--train_attack', type=str, default='None', 
                         choices=['None', 'Free', 'FGSM_RS', 'FGSM_GA', 'FGSM_CKPT', 'FGSM_PGI', 'FGSM_UAP', 'PGD_Linf', 'GAT', 'NuAT', 'TRADES'])
     parser.add_argument('--loss', type=str, default='CE', choices=['CE', 'QUB'])
     parser.add_argument('--QUB_reg', type=float, default=0., help='if you want to use regularizer, set positive value')
+    parser.add_argument('--QUB_func', type=str, default='linear', choices=['linear', 'const', 'acc'], help='if you want to use regularizer, set positive value')
 
     # 기본 파싱
     args, _ = parser.parse_known_args()

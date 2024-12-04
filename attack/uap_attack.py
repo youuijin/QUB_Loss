@@ -3,7 +3,7 @@ import torch.nn.functional as F
 # from attack.AttackBase import Attack
 
 class UAPAttack():
-    def __init__(self, model, feature_layer, feature_optim, uaps, momentum, eps=8.0, uap_eps=10.0, mean=(0, 0, 0), std=(1, 1, 1), device=None):
+    def __init__(self, model, feature_layer, feature_optim, uaps, feature_layer_idx, momentum, eps=8.0, uap_eps=10.0, mean=(0, 0, 0), std=(1, 1, 1), device=None):
         self.model = model  
         self.feature_layer = feature_layer
         self.device = device
@@ -16,6 +16,7 @@ class UAPAttack():
         self.lower_limit = ((0 - self.mean) / self.std)
 
         self.uaps = torch.clamp(self.uap_eps * torch.sign(uaps), -self.uap_eps, self.uap_eps)
+        self.feature_layer_idx = feature_layer_idx
         self.momentum = momentum
         self.feature_optim = feature_optim # optimizer for feature_layer
 
@@ -28,7 +29,7 @@ class UAPAttack():
 
         adv_x = torch.clamp(x_natural + delta, self.lower_limit, self.upper_limit)
         with torch.no_grad():
-            feature = self.model(adv_x, feature_layer=4)
+            feature = self.model(adv_x, feature_layer=self.feature_layer_idx)
 
         feature, out = self.feature_layer(feature)
         uap_max_idx = feature.max(dim=1)[1]

@@ -16,11 +16,17 @@ class FGSM_UAP_Trainer(Trainer):
         # train attack
         image_shape = (3, self.imgsz, self.imgsz)
         momentum = torch.zeros((args.uap_num, *image_shape)).to(self.device)
-        feature_layer = FeatureLayer(uap_num=args.uap_num, class_num=self.n_way).to(self.device)
+        if args.model == 'resnet18' or args.model == 'preresnet18':
+            feature_num = 512
+            feature_layer_idx = 4
+        elif args.model == 'wrn_34_10':
+            feature_num = 640
+            feature_layer_idx = 3
+        feature_layer = FeatureLayer(uap_num=args.uap_num, class_num=self.n_way, feature_num=feature_num).to(self.device)
         opt_feature_layer = torch.optim.Adam(feature_layer.parameters(), lr=0.001)
         uaps = torch.zeros((args.uap_num, *image_shape)).uniform_(-args.uap_eps, args.uap_eps).to(self.device)
 
-        self.train_attack = UAPAttack(self.model, feature_layer, opt_feature_layer, uaps, momentum, eps=args.eps, uap_eps=args.uap_eps, 
+        self.train_attack = UAPAttack(self.model, feature_layer, opt_feature_layer, uaps, feature_layer_idx, momentum, eps=args.eps, uap_eps=args.uap_eps, 
                                                mean=self.mean, std=self.std, device=self.device)
         self.lamb = args.lamb
         self.MSE_fn = torch.nn.MSELoss()
@@ -55,6 +61,11 @@ class FGSM_UAP_Trainer(Trainer):
                 if self.QUB_reg>0:
                     adv_CE_loss = F.cross_entropy(adv_outputs, targets, reduction='none')
                     dist = torch.pow(upper_loss-adv_CE_loss, 2)
+                    if self.QUB_func=='acc':
+                        _, predicted = adv_outputs.max(1)
+                        probability = predicted.eq(targets).sum().item()/targets.size(0)
+                        # print(probability)
+                        cur_reg = self.cur_QUB_reg(epoch, probability)
                     upper_loss += cur_reg*dist
                     # tot_reg += reg_value.sum().item() #TODO: logging
 
@@ -82,9 +93,9 @@ class FGSM_UAP_Trainer(Trainer):
 
 
 class FeatureLayer(torch.nn.Module):
-    def __init__(self, uap_num=50, class_num=10):
+    def __init__(self, uap_num=50, class_num=10, feature_num=512):
         super(FeatureLayer, self).__init__()
-        self.uap_linear = torch.nn.Linear(512, uap_num)
+        self.uap_linear = torch.nn.Linear(feature_num, uap_num)
         self.uap_classifier = torch.nn.Linear(uap_num, class_num)
 
     def forward(self, x):

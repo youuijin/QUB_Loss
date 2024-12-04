@@ -66,11 +66,38 @@ class WideResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    # def forward(self, x):
+    #     out = self.conv1(x)
+    #     out = self.layer1(out)
+    #     out = self.layer2(out)
+    #     out = self.layer3(out)
+    #     out = F.relu(self.bn1(out))
+    #     out = F.avg_pool2d(out, 8)
+    #     out = out.view(out.size(0), -1)
+    #     out = self.linear(out)
+
+    #     return out
+    
+    def forward(self, x, feature_layer=0):
         out = self.conv1(x)
         out = self.layer1(out)
+        if feature_layer == 1:
+            feature = F.avg_pool2d(out, 32)
+            feature = feature.view(feature.size(0), -1)
+            return feature
+        
         out = self.layer2(out)
+        if feature_layer == 2:
+            feature = F.avg_pool2d(out, 16)
+            feature = feature.view(feature.size(0), -1)
+            return feature
+        
         out = self.layer3(out)
+        if feature_layer == 3:
+            feature = F.avg_pool2d(out, 8)
+            feature = feature.view(feature.size(0), -1)
+            return feature
+        
         out = F.relu(self.bn1(out))
         out = F.avg_pool2d(out, 8)
         out = out.view(out.size(0), -1)

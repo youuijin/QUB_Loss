@@ -11,8 +11,8 @@ from attack.pgd_attack import PGDAttack
 class Trainer:
     def __init__(self, args):
         # paths
-        self.log_dir = args.log_dir
-        self.save_dir = args.save_dir
+        self.log_dir = f'{args.log_dir}/seed{args.seed}'
+        self.save_dir = f'{args.save_dir}/seed{args.seed}'
 
         # train environment
         self.device = f'cuda:{args.device}' if args.device>=0 else 'cpu'
@@ -36,10 +36,13 @@ class Trainer:
         self.loss_desc = args.loss
         if args.loss == 'QUB' and args.QUB_reg>0:
             self.loss_desc = f'{args.loss}(reg{args.QUB_reg})'
+            if args.QUB_func != 'linear':
+                self.loss_desc = f'{args.loss}(reg{args.QUB_reg}_{args.QUB_func})'
         
         # QUB hyperparameter
         self.K = 0.5
         self.QUB_reg = args.QUB_reg
+        self.QUB_func = args.QUB_func
 
         # Validation Attack - PGD10
         self.valid_attack = PGDAttack(self.model, eps=args.valid_eps, alpha=2., iter=10, mean=self.mean, std=self.std, device=self.device)
@@ -63,9 +66,17 @@ class Trainer:
         # tracking best accuracy 
         self.best_acc, self.best_adv_acc, self.last_acc, self.last_adv_acc = 0, 0, 0, 0
 
-    def cur_QUB_reg(self, epoch):
-        return self.QUB_reg*(epoch/self.epoch)
-
+    def cur_QUB_reg(self, epoch, acc=0):
+        if self.QUB_func == 'linear':
+            scale = epoch/self.epoch
+        elif self.QUB_func == 'const':
+            scale = 1
+        elif self.QUB_func == 'acc':
+            scale = acc
+        elif self.QUB_func == 'ratio':
+            scale = acc
+        return self.QUB_reg*scale
+    
     def train(self):
         # Setting logger
         self.writer = SummaryWriter(f'{self.log_dir}/{self.log_name}')
@@ -119,7 +130,13 @@ class Trainer:
                 if self.QUB_reg>0:
                     adv_CE_loss = F.cross_entropy(adv_outputs, targets, reduction='none')
                     dist = torch.pow(upper_loss-adv_CE_loss, 2)
+                    if self.QUB_func=='acc':
+                        _, predicted = adv_outputs.max(1)
+                        probability = predicted.eq(targets).sum().item()/targets.size(0)
+                        # print(probability)
+                        cur_reg = self.cur_QUB_reg(epoch, probability)
                     upper_loss += cur_reg*dist
+                    # upper_loss = (1-cur_reg)*upper_loss + cur_reg*dist
                     # tot_reg += reg_value.sum().item() #TODO: logging
 
                 loss = upper_loss.mean()
