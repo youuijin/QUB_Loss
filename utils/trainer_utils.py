@@ -6,6 +6,8 @@ from torchvision.datasets import CIFAR10, CIFAR100, SVHN, ImageFolder
 
 from torch.utils.data import DataLoader, random_split, Subset
 
+import torch
+
 # from Trainers import *
 
 def set_model(model_name, n_class):
@@ -102,3 +104,33 @@ def set_dataset(dataset, norm_mean, norm_std):
 
 
     return train_data, test_data, data_num, imgsz
+
+# import torch
+
+def get_gradient_norm(model, norm_type='L2'):
+    total_norm = 0.0
+    
+    for p in model.parameters():
+        if p.grad is not None:
+            if norm_type == 'L2':
+                param_norm = p.grad.detach().data.norm(2)  # L2 norm (Euclidean norm)
+                total_norm += param_norm.item() ** 2
+            elif norm_type == 'L1':
+                param_norm = p.grad.detach().data.abs().sum()  # L1 norm (sum of absolute values)
+                total_norm += param_norm.item()
+            elif norm_type == 'Linf':
+                param_norm = p.grad.detach().data.abs().max()  # L∞ norm (max of absolute values)
+                total_norm = max(total_norm, param_norm.item())
+            else:
+                raise ValueError("Invalid norm type. Choose from 'L2', 'L1', or 'Linf'.")
+    
+    if norm_type == 'L2':
+        total_norm = total_norm ** 0.5  # sqrt to get final L2 norm
+    
+    return total_norm
+
+def get_logit_norm(logit, loss):
+    total_norm = torch.norm(logit.grad, p=2)
+    # total_norm = (-1*y+logit)
+    # total_norm = total_norm ** 0.5  # sqrt to get final L2 norm
+    return total_norm

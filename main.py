@@ -35,6 +35,7 @@ def get_args():
     parser.add_argument('--loss', type=str, default='CE', choices=['CE', 'QUB'])
     parser.add_argument('--QUB_reg', type=float, default=0., help='if you want to use regularizer, set positive value')
     parser.add_argument('--QUB_func', type=str, default='linear', choices=['linear', 'const', 'acc'], help='if you want to use regularizer, set positive value')
+    parser.add_argument('--QUB_opt', type=str, choices=['QUBAT', 'dQUB', 'CEQUB', 'none'], default='none')
 
     # 기본 파싱
     args, _ = parser.parse_known_args()
@@ -52,7 +53,6 @@ def get_args():
 # OOP structure
 if __name__ == '__main__':
     args = get_args()
-
     set_seed(seed=args.seed)
     trainer = set_trainer(args.train_attack, args)
 

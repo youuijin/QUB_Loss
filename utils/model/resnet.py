@@ -190,12 +190,13 @@ class PreActResNet(nn.Module):
             return feature
 
         out = self.layer4(out)
+        out = F.relu(self.bn(out))
         if feature_layer == 4:
-            feature = F.avg_pool2d(out, 4)
+            feature = F.avg_pool2d(out, 8)
             feature = feature.view(feature.size(0), -1)
             return feature
 
-        out = F.relu(self.bn(out))
+        # out = F.relu(self.bn(out))
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
         out = self.linear(out)

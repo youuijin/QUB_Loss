@@ -1,4 +1,4 @@
-import torch, random
+import torch, random, gc
 
 from Trainers.trainer_base import Trainer
 from utils.trainer_utils import *
@@ -10,9 +10,12 @@ class FGSM_PGI_Trainer(Trainer):
     def __init__(self, args):
         super().__init__(args)
 
+        # data parallel for FGSM_PGI
+        # self.model = torch.nn.DataParallel(self.model, device_ids=[2, 3])
+
         # log_name
         cur = datetime.now().strftime('%m-%d_%H-%M')
-        self.log_name = f'FGSM_PGI(eps{args.eps}_alpha{args.alpha}_reset{args.epoch_reset}_mom{args.momentum_decay}_lamb{args.lamb})_{self.loss_desc}_lr{args.lr}_{cur}'
+        self.log_name = f'FGSM_PGI(eps{args.eps}_alpha{args.alpha}_reset{args.epoch_reset}_mom{args.momentum_decay}_lamb{args.lamb}_new)_{self.loss_desc}_lr{args.lr}_{cur}'
         
         # normalize
         tensor_mean = torch.tensor(self.mean).to(self.device).view(1, 3, 1, 1)
@@ -35,7 +38,8 @@ class FGSM_PGI_Trainer(Trainer):
         # self.test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
         for X, y in train_loader:
-            self.Xs, self.Ys = X.to(self.device), y.to(self.device)
+            # self.Xs, self.Ys = X.to(self.device), y.to(self.device)
+            self.Xs, self.Ys = X, y
 
         self.iter_num = self.num_of_example // args.batch_size + (0 if self.num_of_example % args.batch_size == 0 else 1)
 
@@ -141,22 +145,41 @@ class FGSM_PGI_Trainer(Trainer):
 
                     loss = F.cross_entropy(clean_outputs, y, reduction='none')
 
-                    upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
-                    
-                    if self.QUB_reg>0:
+                    if self.QUB_opt == "QUBAT":
+                        lamb = epoch/self.epoch
+                        upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
                         adv_CE_loss = F.cross_entropy(output, y, reduction='none')
-                        dist = torch.pow(upper_loss-adv_CE_loss, 2)
-                        if self.QUB_func=='acc':
-                            _, predicted = output.max(1)
-                            probability = predicted.eq(y).sum().item()/y.size(0)
-                            # print(probability)
-                            cur_reg = self.cur_QUB_reg(epoch, probability)
-                        upper_loss += cur_reg*dist
-                        # tot_reg += reg_value.sum().item() #TODO: logging
+                        loss = (1-lamb)*upper_loss + lamb*adv_CE_loss
+                        loss = loss.mean()
+                    elif self.QUB_opt == "CEQUB":
+                        lamb = epoch/self.epoch
+                        upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                        loss = (1-lamb)*loss + lamb*upper_loss
+                        loss = loss.mean()
+                    elif self.QUB_opt == "dQUB":
+                        upper_loss = 2*loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                        loss = upper_loss.mean()
+                    else:
+                        upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                        loss = upper_loss.mean()
 
-                    loss = upper_loss.mean() + self.lamb*loss_fn(output.float(), ori_output.float())
+                    # upper_loss = loss + torch.sum((output-clean_outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                    
+                    # if self.QUB_reg>0:
+                    #     adv_CE_loss = F.cross_entropy(output, y, reduction='none')
+                    #     dist = torch.pow(upper_loss-adv_CE_loss, 2)
+                    #     if self.QUB_func=='acc':
+                    #         _, predicted = output.max(1)
+                    #         probability = predicted.eq(y).sum().item()/y.size(0)
+                    #         # print(probability)
+                    #         cur_reg = self.cur_QUB_reg(epoch, probability)
+                    #     upper_loss += cur_reg*dist
+                    #     # tot_reg += reg_value.sum().item() #TODO: logging
+
+                    loss = loss + self.lamb*loss_fn(output.float(), ori_output.float())
 
                 self.optimizer.zero_grad()
+                # self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 self.optimizer.step()
                 loss_tot += loss.item() * y.size(0)
@@ -168,6 +191,14 @@ class FGSM_PGI_Trainer(Trainer):
                 all_momentum[cur_order[batch_idx:min(self.num_of_example, batch_idx + batch_size)]] = momentum
 
                 all_delta[cur_order[batch_idx:min(self.num_of_example, batch_idx + batch_size)]]=next_delta
+
+                del ori_loss, loss, X, y, rst
+                torch.cuda.empty_cache()
+                gc.collect()
+
+            # # 메모리 정리
+            # torch.cuda.empty_cache()
+            # gc.collect()
 
             train_acc = 100.*correct/total
             train_loss = loss_tot/total

@@ -11,7 +11,7 @@ class Free_Trainer(Trainer):
 
         # log_name
         cur = datetime.now().strftime('%m-%d_%H-%M')
-        self.log_name = f'Free(eps{args.eps}_m{args.m})_{self.loss_desc}_lr{args.lr}_{cur}'
+        self.log_name = f'Free(eps{args.eps}_m{args.m})_{self.loss_desc}_e{args.epoch}_lr{args.lr}_{cur}'
 
         # train attack
         self.epoch = int(self.epoch/args.m)
@@ -50,20 +50,38 @@ class Free_Trainer(Trainer):
                     adv_outputs = self.model(advx)
                     adv_norm = torch.norm(adv_outputs-outputs, dim=1)
 
-                    upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
-                    
-                    if self.QUB_reg>0:
+                    if self.QUB_opt == "QUBAT":
+                        lamb = epoch/self.epoch
+                        upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
                         adv_CE_loss = F.cross_entropy(adv_outputs, targets, reduction='none')
-                        dist = torch.pow(upper_loss-adv_CE_loss, 2)
-                        if self.QUB_func=='acc':
-                            _, predicted = adv_outputs.max(1)
-                            probability = predicted.eq(targets).sum().item()/targets.size(0)
-                            # print(probability)
-                            cur_reg = self.cur_QUB_reg(epoch, probability)
-                        upper_loss += cur_reg*dist
+                        loss = (1-lamb)*upper_loss + lamb*adv_CE_loss
+                        loss = loss.mean()
+                    elif self.QUB_opt == "CEQUB":
+                        lamb = epoch/self.epoch
+                        upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                        loss = (1-lamb)*loss + lamb*upper_loss
+                        loss = loss.mean()
+                    elif self.QUB_opt == "dQUB":
+                        upper_loss = 2*loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                        loss = upper_loss.mean()
+                    else:
+                        upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                        loss = upper_loss.mean()
+
+                    # upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                    
+                    # if self.QUB_reg>0:
+                    #     adv_CE_loss = F.cross_entropy(adv_outputs, targets, reduction='none')
+                    #     dist = torch.pow(upper_loss-adv_CE_loss, 2)
+                    #     if self.QUB_func=='acc':
+                    #         _, predicted = adv_outputs.max(1)
+                    #         probability = predicted.eq(targets).sum().item()/targets.size(0)
+                    #         # print(probability)
+                    #         cur_reg = self.cur_QUB_reg(epoch, probability)
+                    #     upper_loss += cur_reg*dist
                         # tot_reg += reg_value.sum().item() #TODO: logging
 
-                    loss = upper_loss.mean()
+                    # loss = upper_loss.mean()
 
                 self.optimizer.zero_grad()
                 loss.backward()

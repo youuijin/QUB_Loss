@@ -12,7 +12,7 @@ class FGSM_GA_Trainer(Trainer):
 
         # log_name
         cur = datetime.now().strftime('%m-%d_%H-%M')
-        self.log_name = f'FGSM_GA(eps{args.eps}_lamb{args.lamb})_{self.loss_desc}_lr{args.lr}_{cur}'
+        self.log_name = f'FGSM_GA(eps{args.eps}_lamb{args.lamb}_new)_{self.loss_desc}_lr{args.lr}_{cur}'
 
         # train attack
         self.train_attack = FGSM_Attack(self.model, eps=args.eps, mean=self.mean, std=self.std, device=self.device)
@@ -52,20 +52,39 @@ class FGSM_GA_Trainer(Trainer):
 
                 loss = F.cross_entropy(outputs, targets, reduction='none')
 
-                upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
-                
-                if self.QUB_reg>0:
+                if self.QUB_opt == "QUBAT":
+                    lamb = epoch/self.epoch
+                    upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
                     adv_CE_loss = F.cross_entropy(adv_outputs, targets, reduction='none')
-                    dist = torch.pow(upper_loss-adv_CE_loss, 2)
-                    if self.QUB_func=='acc':
-                        _, predicted = adv_outputs.max(1)
-                        probability = predicted.eq(targets).sum().item()/targets.size(0)
-                        # print(probability)
-                        cur_reg = self.cur_QUB_reg(epoch, probability)
-                    upper_loss += cur_reg*dist
-                    # tot_reg += reg_value.sum().item() #TODO: logging
+                    loss = (1-lamb)*upper_loss + lamb*adv_CE_loss
+                    loss = loss.mean()
+                elif self.QUB_opt == "CEQUB":
+                    lamb = epoch/self.epoch
+                    upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                    loss = (1-lamb)*loss + lamb*upper_loss
+                    loss = loss.mean()
+                elif self.QUB_opt == "dQUB":
+                    upper_loss = 2*loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                    loss = upper_loss.mean()
+                else:
+                    upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                    loss = upper_loss.mean()
+                
 
-                loss = upper_loss.mean()
+                # upper_loss = loss + torch.sum((adv_outputs-outputs)*(softmax-y_onehot), dim=1) + self.K/2.0*torch.pow(adv_norm, 2)
+                
+                # if self.QUB_reg>0:
+                #     adv_CE_loss = F.cross_entropy(adv_outputs, targets, reduction='none')
+                #     dist = torch.pow(upper_loss-adv_CE_loss, 2)
+                #     if self.QUB_func=='acc':
+                #         _, predicted = adv_outputs.max(1)
+                #         probability = predicted.eq(targets).sum().item()/targets.size(0)
+                #         # print(probability)
+                #         cur_reg = self.cur_QUB_reg(epoch, probability)
+                #     upper_loss += cur_reg*dist
+                #     # tot_reg += reg_value.sum().item() #TODO: logging
+
+                # loss = upper_loss.mean()
 
             # Grad Align between Original image & random image
             delta1 = torch.zeros_like(inputs, requires_grad=True).to(self.device)
@@ -75,7 +94,7 @@ class FGSM_GA_Trainer(Trainer):
             grad1 = torch.autograd.grad(x1_loss, delta1, create_graph=True)[0]
 
             delta2 = torch.zeros_like(inputs).to(self.device)
-            for i, e in enumerate(range(3)):
+            for i, e in enumerate(self.train_attack.eps.squeeze()):
                 delta2[:, i, :, :].uniform_(-e, e)
             delta2 = torch.clamp(delta2, self.lower_limit-inputs, self.upper_limit-inputs)
             delta2.requires_grad = True
